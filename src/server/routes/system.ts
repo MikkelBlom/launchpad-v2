@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { getSettings, updateSettings } from '../repo/settings.ts'
 import { discoverProjects, scanAll } from '../services/scanner.ts'
+import { importOldLaunchpad } from '../services/importer.ts'
 import { getPort } from '../config.ts'
 
 export async function systemRoutes(app: FastifyInstance): Promise<void> {
@@ -20,5 +21,17 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
   app.post('/rescan', async () => {
     await scanAll()
     return { ok: true }
+  })
+
+  // Import projects from the original Launchpad's registry, relocating stale paths.
+  app.post('/import/old-launchpad', async (req, reply) => {
+    try {
+      const registryPath = (req.body as { registryPath?: string } | undefined)?.registryPath
+      return await importOldLaunchpad(registryPath)
+    } catch (error) {
+      return reply.code(400).send({
+        error: String(error instanceof Error ? error.message : error)
+      })
+    }
   })
 }

@@ -11,11 +11,20 @@ import type {
   Task
 } from '../../shared/types'
 
+export interface ImportResult {
+  registrySource: string
+  imported: Array<{ name: string; path: string }>
+  relocated: Array<{ name: string; from: string; to: string }>
+  skipped: Array<{ name: string; reason: string }>
+  notFound: Array<{ name: string; path: string }>
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init
-  })
+  // Only advertise a JSON body when we actually send one — a bodyless POST with a
+  // JSON content-type makes the server reject it as an empty body.
+  const headers: Record<string, string> = {}
+  if (init?.body) headers['Content-Type'] = 'application/json'
+  const res = await fetch(`/api${path}`, { ...init, headers })
   if (!res.ok) {
     let message = `Request failed (${res.status})`
     try {
@@ -59,6 +68,8 @@ export const api = {
 
   // Scan / settings
   scan: () => req<{ added: string[]; scanned: number }>('/scan', { method: 'POST' }),
+  importOld: () =>
+    req<ImportResult>('/import/old-launchpad', { method: 'POST' }),
   getSettings: () => req<AppSettings>('/settings'),
   updateSettings: (patch: Partial<AppSettings>) =>
     req<AppSettings>('/settings', { method: 'PUT', ...body(patch) }),

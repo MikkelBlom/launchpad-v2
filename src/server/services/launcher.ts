@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process'
 import { isAbsolute, join } from 'node:path'
-import { getLaunchProfile } from '../repo/launchProfiles.ts'
+import {
+  createLaunchProfile,
+  getLaunchProfile,
+  listLaunchProfiles
+} from '../repo/launchProfiles.ts'
 import { getProject, touchOpened } from '../repo/projects.ts'
 import { getSettings } from '../repo/settings.ts'
 
@@ -92,4 +96,20 @@ export function defaultProfilesFor(stack: string[], remoteUrl: string | null): S
     profiles.push({ name: 'Open on GitHub', kind: 'url', value: browseUrl })
   }
   return profiles
+}
+
+// Seed sensible default launch profiles for a project, but only if it has none yet.
+// Reads the project's already-scanned stack + git remote. Safe to call repeatedly.
+export function seedDefaultLaunchProfiles(projectId: number): void {
+  if (listLaunchProfiles(projectId).length > 0) return
+  const project = getProject(projectId)
+  if (!project) return
+  for (const profile of defaultProfilesFor(project.stack, project.git.remoteUrl)) {
+    createLaunchProfile({
+      projectId,
+      name: profile.name,
+      kind: profile.kind,
+      value: profile.value
+    })
+  }
 }

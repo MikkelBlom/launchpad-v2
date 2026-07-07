@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { simpleGit } from 'simple-git'
 import { normalizePath } from '../config.ts'
+import { seedDefaultLaunchProfiles } from './launcher.ts'
 import type { GitInfo } from '../../shared/types.ts'
 import {
   createProject,
@@ -225,5 +226,9 @@ export async function discoverProjects(maxDepth = 2): Promise<DiscoveryResult> {
   }
 
   await scanAll()
+  // Seed default launch profiles for any project that doesn't have them yet.
+  for (const project of listProjects()) {
+    seedDefaultLaunchProfiles(project.id)
+  }
   return { added, scanned: listProjects().length }
 }

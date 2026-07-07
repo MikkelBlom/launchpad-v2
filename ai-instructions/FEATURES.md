@@ -15,10 +15,10 @@ Plain status tracker (readable markdown — this is not machine-parsed).
 - **Agent CLI** — `launchpad pull` / `launchpad status`, resolves project by cwd, writes `ai-instructions/LAUNCHPAD.md` (+ `.launchpad.json`).
 - **Desktop shell** — Electron window + tray + start-at-login; spawns the server under system Node.
 - **Settings** — project roots, editor command, github user, scan-on-startup, CLI install hint.
+- **Import from old Launchpad** — reads the original registry and imports projects, relocating stale/OneDrive paths by name; result summary in Settings.
 
 ## Planned / not yet
 
-- Import the old Launchpad electron-store registry (one-time migration helper).
 - Global hotkey for capture (currently in-app capture bar only).
 - Optional local-AI assist (summaries, next-step suggestions) — must stay optional.
 - Mobile face (server already local; would bind to LAN + auth).

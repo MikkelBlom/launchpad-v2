@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { AppSettings } from '../../../shared/types'
-import { api } from '../api'
+import { api, type ImportResult } from '../api'
 import { Button, EmptyState, IconButton, inputCls, useToast } from './ui'
 import { IconPlus, IconRefresh, IconTrash } from './icons'
 
@@ -8,7 +8,24 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [newRoot, setNewRoot] = useState('')
   const [scanning, setScanning] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const toast = useToast()
+
+  const runImport = async () => {
+    setImporting(true)
+    try {
+      const result = await api.importOld()
+      setImportResult(result)
+      onChanged()
+      const count = result.imported.length + result.relocated.length
+      toast(count ? `Imported ${count} project${count === 1 ? '' : 's'}` : 'Nothing new to import')
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setImporting(false)
+    }
+  }
 
   useEffect(() => {
     api.getSettings().then(setSettings)
@@ -91,6 +108,41 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
         </div>
       </section>
 
+      <section className="rounded-xl border border-line bg-surface-0 p-5">
+        <h2 className="text-sm font-semibold text-ink">Import from old Launchpad</h2>
+        <p className="mt-0.5 text-sm text-ink-soft">
+          Pull in the projects registered in the original Launchpad. Paths that no longer exist
+          (e.g. old OneDrive paths) are automatically re-found by name.
+        </p>
+        <div className="mt-3">
+          <Button variant="subtle" onClick={runImport} disabled={importing}>
+            <IconRefresh /> {importing ? 'Importing…' : 'Import old projects'}
+          </Button>
+        </div>
+        {importResult && (
+          <div className="mt-3 space-y-2 rounded-lg bg-surface-1 p-3 text-sm">
+            <ImportLine label="Imported" items={importResult.imported.map((x) => x.name)} tone="text-brand-strong" />
+            <ImportLine
+              label="Relocated"
+              items={importResult.relocated.map((x) => `${x.name} → ${x.to}`)}
+              tone="text-sky-700"
+            />
+            <ImportLine label="Already present" items={importResult.skipped.map((x) => x.name)} tone="text-ink-faint" />
+            <ImportLine
+              label="Not found"
+              items={importResult.notFound.map((x) => `${x.name} (${x.path})`)}
+              tone="text-rose-600"
+            />
+            {importResult.notFound.length > 0 && (
+              <p className="pt-1 text-xs text-ink-faint">
+                Not-found projects were moved or deleted. Re-add a project root that contains them and
+                run Import again, or create them fresh.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
       <section className="rounded-xl border border-line bg-surface-0 p-5 space-y-4">
         <h2 className="text-sm font-semibold text-ink">Preferences</h2>
         <label className="block">
@@ -135,6 +187,18 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           Then from any registered project: <span className="font-mono">launchpad pull</span>
         </p>
       </section>
+    </div>
+  )
+}
+
+function ImportLine({ label, items, tone }: { label: string; items: string[]; tone: string }) {
+  if (items.length === 0) return null
+  return (
+    <div>
+      <span className={`font-medium ${tone}`}>
+        {label} ({items.length}):
+      </span>{' '}
+      <span className="text-ink-soft">{items.join(', ')}</span>
     </div>
   )
 }

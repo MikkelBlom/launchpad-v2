@@ -17,6 +17,22 @@ export async function createServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false })
   await app.register(cors, { origin: true })
 
+  // Tolerate empty JSON bodies: many endpoints are bodyless POSTs (scan, open, run…).
+  // The default parser rejects an empty body with 400, so treat empty as `undefined`.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, bodyStr, done) => {
+    const trimmed = (bodyStr as string).trim()
+    if (!trimmed) {
+      done(null, undefined)
+      return
+    }
+    try {
+      done(null, JSON.parse(trimmed))
+    } catch (err) {
+      ;(err as { statusCode?: number }).statusCode = 400
+      done(err as Error, undefined)
+    }
+  })
+
   await app.register(
     async (api) => {
       await projectRoutes(api)

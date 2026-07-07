@@ -7,11 +7,26 @@ let instance: DatabaseSync | null = null
 export function getDb(): DatabaseSync {
   if (!instance) {
     instance = new DatabaseSync(getDbPath())
-    instance.exec('PRAGMA journal_mode = WAL;')
+    // Rollback-journal mode (not WAL): every commit is written straight to the main db
+    // file and fsync'd, so data survives the hard process kill the Electron shell uses on
+    // quit. WAL's uncheckpointed-log complexity isn't worth it for a single-user app.
+    instance.exec('PRAGMA journal_mode = DELETE;')
+    instance.exec('PRAGMA synchronous = FULL;')
     instance.exec('PRAGMA foreign_keys = ON;')
     runMigrations(instance)
   }
   return instance
+}
+
+export function closeDb(): void {
+  if (instance) {
+    try {
+      instance.close()
+    } catch {
+      /* already closed */
+    }
+    instance = null
+  }
 }
 
 export function nowIso(): string {

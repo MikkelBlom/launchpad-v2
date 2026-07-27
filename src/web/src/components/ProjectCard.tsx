@@ -2,7 +2,7 @@ import type { Project } from '../../../shared/types'
 import { api } from '../api'
 import { ACTIVITY_META, relativeTime, STACK_EMOJI, STATUS_META } from '../format'
 import { Badge, IconButton, useToast } from './ui'
-import { IconCode, IconFolder, IconGithub, IconGlobe, IconStar, IconTerminal } from './icons'
+import { IconCode, IconFolder, IconGithub, IconGlobe, IconRobot, IconServer, IconStar, IconTerminal } from './icons'
 
 export function ProjectCard({
   project,
@@ -89,6 +89,9 @@ export function ProjectCard({
         )}
         {project.git.dirty && <Badge className="bg-amber-100 text-amber-700">uncommitted</Badge>}
         {project.liveUrl && <Badge className="bg-brand-soft text-brand-strong">live</Badge>}
+        {project.devPort && (
+          <Badge className="bg-surface-2 font-mono text-ink-soft">:{project.devPort}</Badge>
+        )}
         {!project.pathExists && (
           <span title={project.path}>
             <Badge className="bg-rose-100 text-rose-700">folder missing</Badge>
@@ -112,8 +115,19 @@ export function ProjectCard({
           {project.git.remoteUrl && (
             <IconButton title="Open on GitHub" onClick={() => guard(() => api.openGithub(project.id), 'Opening GitHub…')}><IconGithub /></IconButton>
           )}
+          {project.devPort && (
+            <IconButton title={`Open localhost:${project.devPort}`} onClick={() => guard(() => api.openDev(project.id), `Opening localhost:${project.devPort}…`)}><IconServer /></IconButton>
+          )}
           {project.liveUrl && (
             <IconButton title={`Open live site — ${project.liveUrl}`} onClick={() => guard(() => api.openLive(project.id), 'Opening live site…')}><IconGlobe /></IconButton>
+          )}
+          {!project.onboarded && project.pathExists && (
+            <IconButton
+              title="Onboard for AI agents — writes the binding and the Launchpad block into ai-instructions/"
+              onClick={() => guard(() => api.onboard(project.id).then(onChanged), `Onboarded ${project.name}`)}
+            >
+              <IconRobot />
+            </IconButton>
           )}
         </div>
       </div>

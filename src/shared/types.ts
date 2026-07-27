@@ -65,8 +65,14 @@ export interface Project {
   // Live deployment, either detected from Vercel or entered by hand.
   liveUrl: string | null
   vercelProjectId: string | null
+  // The localhost port this project's dev server runs on, and where that came from
+  // (e.g. "vite.config.ts", "manual") so a detected value can be told from a claimed one.
+  devPort: number | null
+  devPortSource: string | null
   // False when the folder has been moved, renamed, or deleted on disk.
   pathExists: boolean
+  // True when ai-instructions/.launchpad.json binds this folder to this project.
+  onboarded: boolean
 }
 
 export interface Note {
@@ -147,6 +153,67 @@ export interface AppSettings {
   // Vercel personal access token, used to match projects to their live deployments.
   vercelToken: string
   vercelTeamId: string
+  // Whether the desktop app starts with Windows. The DB is the source of truth; the
+  // Electron shell reads this on launch and applies it.
+  startAtLogin: boolean
+}
+
+// ---- Dev server ports ----
+
+export interface ProjectPort {
+  projectId: number
+  name: string
+  devPort: number | null
+  devPortSource: string | null
+  url: string | null
+  // Whether something is actually listening on that port right now.
+  listening: boolean
+  // Another project laying claim to the same port — a collision worth surfacing.
+  conflictsWith: string[]
+}
+
+export interface PortOverview {
+  projects: ProjectPort[]
+  // Ports currently listening on this machine, whether or not Launchpad knows them.
+  listening: number[]
+  // Free ports Launchpad suggests claiming next.
+  suggested: number[]
+}
+
+export interface PortCheck {
+  port: number
+  available: boolean
+  listening: boolean
+  claimedBy: string | null
+  reason: string
+}
+
+// ---- Git diff ----
+
+export interface DiffFile {
+  path: string
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked'
+  additions: number
+  deletions: number
+  patch: string
+  binary: boolean
+  truncated: boolean
+}
+
+export interface ProjectDiff {
+  staged: boolean
+  files: DiffFile[]
+  totalAdditions: number
+  totalDeletions: number
+  truncated: boolean
+}
+
+export interface OnboardResult {
+  projectId: number
+  name: string
+  bindingPath: string
+  instructionsPath: string
+  snapshotPath: string
 }
 
 export interface VercelProject {

@@ -72,3 +72,25 @@ filesystem on demand and caches results on the project row.
 
 See `README.md`. Short version: `npm run dev` → http://localhost:7421 (dev), or
 `npm run build && npm run desktop` for the desktop app.
+
+<!-- launchpad:begin -->
+## Launchpad
+
+This project is tracked in **Launchpad**, a local service on http://localhost:7420 that owns
+Mikkel's notes, ideas, and tasks for every project. **It is Launchpad project #2 ("Launchpad").**
+Launchpad's database is the source of truth — not the markdown in this repo.
+
+```bash
+launchpad pull --json      # read this project's tasks/ideas/notes (nothing written to disk)
+launchpad guide            # the full command set, with the push-plan schema
+```
+
+Every `launchpad` command run inside this folder targets project #2 automatically.
+Write back with `launchpad task add "…"`, `launchpad idea add "…"`, `launchpad note add "…"`,
+`launchpad set description "…"`, `launchpad tag add <name>`, or a batch `launchpad push plan.json`.
+
+**Dev server port.** This project has no port claimed yet. Before configuring a dev server, run `launchpad ports free` to get ports that are actually available, pick one, and claim it with `launchpad set port <n>` so it shows up in Launchpad and nothing else takes it. Never assume 3000, 3001 or 5000 are free — they are already taken on this machine.
+
+`ai-instructions/LAUNCHPAD.md` is a **read-only mirror** — editing it changes nothing.
+Agents archive rather than delete; nothing you do here is unrecoverable.
+<!-- launchpad:end -->

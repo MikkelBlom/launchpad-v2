@@ -7,12 +7,13 @@ import { ProjectDetail } from './components/ProjectDetail'
 import { Settings } from './components/Settings'
 import { Inbox } from './components/Inbox'
 import { ActivityView } from './components/ActivityView'
+import { PortsView } from './components/PortsView'
 import { NewProjectModal } from './components/NewProjectModal'
 import { CaptureBar } from './components/CaptureBar'
 import { Sidebar } from './components/Sidebar'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 
-type View = 'dashboard' | 'inbox' | 'activity' | 'settings'
+type View = 'dashboard' | 'inbox' | 'activity' | 'ports' | 'settings'
 
 function Shell() {
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -159,6 +160,8 @@ function Shell() {
             <Inbox projects={projects ?? []} onChanged={() => { refreshInbox(); refreshProjects() }} />
           ) : view === 'activity' ? (
             <ActivityView onOpenProject={openProject} />
+          ) : view === 'ports' ? (
+            <PortsView onOpenProject={openProject} />
           ) : (
             <Settings onChanged={refreshProjects} />
           )}

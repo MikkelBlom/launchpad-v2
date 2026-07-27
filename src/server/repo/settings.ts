@@ -11,7 +11,8 @@ const DEFAULTS: AppSettings = {
   defaultSort: 'activity',
   groupByStatus: false,
   vercelToken: '',
-  vercelTeamId: ''
+  vercelTeamId: '',
+  startAtLogin: true
 }
 
 function readRaw(key: string): string | undefined {

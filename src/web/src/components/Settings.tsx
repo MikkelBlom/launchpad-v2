@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppSettings, DiscoveryResult, DuplicateGroup, Tag } from '../../../shared/types'
+import type { AppSettings, DiscoveryResult, DuplicateGroup, OnboardResult, Tag } from '../../../shared/types'
 import { api, type ImportResult } from '../api'
 import { Button, EmptyState, IconButton, inputCls, useToast } from './ui'
-import { IconDownload, IconFolder, IconPlus, IconRefresh, IconTrash, IconUpload } from './icons'
+import { IconDownload, IconFolder, IconPlus, IconRefresh, IconRobot, IconTrash, IconUpload } from './icons'
+
+interface OnboardReport {
+  onboarded: OnboardResult[]
+  failed: Array<{ projectId: number; name: string; error: string }>
+}
 
 export function Settings({ onChanged }: { onChanged: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -12,6 +17,8 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
   const [scanResult, setScanResult] = useState<DiscoveryResult | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [onboarding, setOnboarding] = useState(false)
+  const [onboardReport, setOnboardReport] = useState<OnboardReport | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
   const [newTag, setNewTag] = useState('')
   const [dupes, setDupes] = useState<DuplicateGroup[] | null>(null)
@@ -58,6 +65,17 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
     setImporting(true)
     try { const r = await api.importOld(); setImportResult(r); onChanged(); const n = r.imported.length + r.relocated.length; toast(n ? `Imported ${n} project(s)` : 'Nothing new to import') }
     catch (e) { toast(String(e instanceof Error ? e.message : e), 'error') } finally { setImporting(false) }
+  }
+  const onboardAll = async () => {
+    setOnboarding(true)
+    try {
+      const r = await api.onboardAll()
+      setOnboardReport(r)
+      onChanged()
+      const done = r.onboarded.length
+      if (done === 0 && r.failed.length === 0) toast('Every project is already onboarded')
+      else toast(`Onboarded ${done} project(s)${r.failed.length ? `, ${r.failed.length} failed` : ''}`, r.failed.length ? 'error' : 'ok')
+    } catch (e) { toast(String(e instanceof Error ? e.message : e), 'error') } finally { setOnboarding(false) }
   }
   const addTag = async () => {
     if (!newTag.trim()) return
@@ -185,8 +203,25 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           <label className="flex items-center gap-2 pt-6 text-sm text-ink-soft">
             <input type="checkbox" checked={settings.groupByStatus} onChange={(e) => patch({ groupByStatus: e.target.checked })} /> Group by status
           </label>
-          <label className="flex items-center gap-2 pt-6 text-sm text-ink-soft">
-            <input type="checkbox" checked={settings.scanOnStartup} onChange={(e) => patch({ scanOnStartup: e.target.checked })} /> Rescan on startup
+        </div>
+        {/* Two different "on startup" ideas live here, so each says which startup it means. */}
+        <div className="space-y-2 border-t border-line pt-3">
+          <label className="flex items-start gap-2 text-sm text-ink-soft">
+            <input className="mt-0.5" type="checkbox" checked={settings.startAtLogin} onChange={(e) => patch({ startAtLogin: e.target.checked })} />
+            <span>
+              Start Launchpad when Windows starts
+              <span className="block text-xs text-ink-faint">
+                Applies to the desktop app: it starts into the tray at login and keeps the local service running.
+                The desktop app picks the change up the next time its window is opened or focused.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-ink-soft">
+            <input className="mt-0.5" type="checkbox" checked={settings.scanOnStartup} onChange={(e) => patch({ scanOnStartup: e.target.checked })} />
+            <span>
+              Rescan projects when the service starts
+              <span className="block text-xs text-ink-faint">Re-reads git and the filesystem for every project as Launchpad boots.</span>
+            </span>
           </label>
         </div>
       </section>
@@ -265,6 +300,43 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           <Button variant="ghost" onClick={() => api.openDataFolder()}><IconFolder /> Open data folder</Button>
         </div>
         <p className="mt-2 text-xs text-ink-faint">Restore replaces the entire database with the backup file's contents.</p>
+      </section>
+
+      <section className={card}>
+        <h2 className="text-sm font-semibold text-ink">Onboard projects for agents</h2>
+        <p className="mt-0.5 text-sm text-ink-soft">
+          Onboarding writes three files into a project's <span className="font-mono text-xs">ai-instructions/</span> folder:
+          <span className="font-mono text-xs"> .launchpad.json</span> (binds the folder to this project, so a bare
+          <span className="font-mono text-xs"> launchpad pull</span> in it resolves correctly), a Launchpad block inside
+          <span className="font-mono text-xs"> CLAUDE.md</span> (your own text around it is left alone), and
+          <span className="font-mono text-xs"> LAUNCHPAD.md</span> (a read-only snapshot of this project's tasks, ideas and notes).
+          Nothing is read back — the database stays the source of truth.
+        </p>
+        <p className="mt-2 text-sm text-ink-soft">
+          This runs it for every project that isn't onboarded yet. Individual projects have their own Onboard
+          button; re-running is safe and only refreshes those files.
+        </p>
+        <div className="mt-3"><Button variant="subtle" onClick={onboardAll} disabled={onboarding}><IconRobot /> {onboarding ? 'Onboarding…' : 'Onboard all projects'}</Button></div>
+        {onboardReport && (
+          <div className="mt-3 space-y-1 rounded-lg bg-surface-1 p-3 text-sm">
+            {onboardReport.onboarded.length === 0 && onboardReport.failed.length === 0 && (
+              <p className="text-ink-faint">Nothing to do — every project was already onboarded.</p>
+            )}
+            <ImportLine label="Onboarded" items={onboardReport.onboarded.map((o) => o.name)} tone="text-brand-strong" />
+            {onboardReport.failed.length > 0 && (
+              <div>
+                <span className="font-medium text-rose-600">Failed ({onboardReport.failed.length}):</span>
+                <ul className="mt-1 space-y-0.5">
+                  {onboardReport.failed.map((f) => (
+                    <li key={f.projectId} className="text-xs text-ink-soft">
+                      <span className="text-ink">{f.name}</span> — {f.error}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       <section className={card}>

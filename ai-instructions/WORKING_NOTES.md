@@ -94,6 +94,11 @@ What Launchpad deliberately does **not** do: follow moves automatically. Silentl
 project at a folder that merely looks similar is how you end up with notes attached to the wrong
 repo. Detection proposes; the user confirms.
 
+## Git remote
+`https://github.com/MikkelBlom/launchpad-v2` (private). The remote is the **HTTPS** URL, not
+`git@github.com:…`, because SSH auth isn't available from an agent shell — pushes go through
+the `gh` credential helper (`gh auth setup-git`). Changing it to SSH will break agent pushes.
+
 ## Open questions / watch-outs
 - Electron GUI hasn't been launched in an automated environment (it's a desktop app); the
   load target (built UI on :7420) and the shell's syntax are verified. Worth a manual run.

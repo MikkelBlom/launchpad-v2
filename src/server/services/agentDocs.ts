@@ -33,6 +33,12 @@ Every \`launchpad\` command run inside this folder targets project #${project.id
 Write back with \`launchpad task add "…"\`, \`launchpad idea add "…"\`, \`launchpad note add "…"\`,
 \`launchpad set description "…"\`, \`launchpad tag add <name>\`, or a batch \`launchpad push plan.json\`.
 
+**Dev server port.** ${
+    project.devPort
+      ? `This project runs on **http://localhost:${project.devPort}**. Use that port when you start or configure its dev server — don't invent a new one.`
+      : `This project has no port claimed yet. Before configuring a dev server, run \`launchpad ports free\` to get ports that are actually available, pick one, and claim it with \`launchpad set port <n>\` so it shows up in Launchpad and nothing else takes it.`
+  } Never assume 3000, 3001 or 5000 are free — they are already taken on this machine.
+
 \`ai-instructions/LAUNCHPAD.md\` is a **read-only mirror** — editing it changes nothing.
 Agents archive rather than delete; nothing you do here is unrecoverable.
 ${END}`
@@ -48,13 +54,20 @@ export function renderAgentPrompt(project: Project): string {
 Run \`launchpad guide\` first for the full command set. Then:
 1. \`launchpad pull --json --project ${project.id}\` to see what Launchpad already has.
 2. \`launchpad audit --project ${project.id}\` to see what's missing.
-3. Read this repo (README, ai-instructions/*, TODOs in code) and fill the gaps: a real
-   description, tags, open tasks, ideas, and notes worth keeping.
-4. Preview with \`launchpad push plan.json --project ${project.id} --dry-run\`, then apply
-   without --dry-run.
+3. \`launchpad log --project ${project.id}\` to see what has changed recently — the user may
+   have renamed, merged or edited things since anyone last looked.
+4. Read this repo (README, ai-instructions/*, TODOs in code) and fill the gaps: a real
+   description, tags, open tasks, ideas, and notes worth keeping. Ground everything in what
+   the repo actually says is unfinished; don't invent work.
+5. Write the plan to a temp file (not into the repo), preview it with
+   \`launchpad push <plan.json> --project ${project.id} --dry-run\`, then apply without --dry-run.
 
 Push is merge-only and idempotent — it never deletes, and re-running it updates instead of
-duplicating. Archive instead of deleting.`
+duplicating. Archive instead of deleting.
+
+If this project runs a dev server, also claim its port: \`launchpad ports free\` to see what is
+actually available, then \`launchpad set port <n> --project ${project.id}\`. 3000/3001/5000 are
+already taken on this machine.`
 }
 
 export interface WriteInstructionsResult {

@@ -12,9 +12,13 @@ import type {
   ItemType,
   LaunchProfile,
   Note,
+  OnboardResult,
+  PortCheck,
+  PortOverview,
   Priority,
   Project,
   ProjectAudit,
+  ProjectDiff,
   ProjectStatus,
   PushPlan,
   PushResult,
@@ -100,6 +104,31 @@ export const api = {
   setLiveUrl: (id: number, liveUrl: string | null) =>
     req<Project>(`/projects/${id}`, { method: 'PATCH', ...body({ liveUrl }) }),
   openLive: (id: number) => req<{ ok: true }>(`/projects/${id}/open-live`, { method: 'POST' }),
+
+  // Dev server ports
+  ports: () => req<PortOverview>('/ports'),
+  checkPort: (port: number) => req<PortCheck>(`/ports/check?port=${port}`),
+  suggestPorts: (count = 3) => req<{ ports: number[] }>(`/ports/suggest?count=${count}`),
+  setPort: (id: number, port: number | null) =>
+    req<Project>(`/projects/${id}/port`, { method: 'POST', ...body({ port }) }),
+  detectPort: (id: number) =>
+    req<{ port: number | null; source: string | null; project: Project }>(
+      `/projects/${id}/detect-port`,
+      { method: 'POST' }
+    ),
+  openDev: (id: number) => req<{ ok: true }>(`/projects/${id}/open-dev`, { method: 'POST' }),
+
+  // Working-tree diff
+  diff: (id: number, staged = false) =>
+    req<ProjectDiff>(`/projects/${id}/diff${staged ? '?staged=true' : ''}`),
+
+  // Agent onboarding (binding + CLAUDE.md block + snapshot), from the UI
+  onboard: (id: number) => req<OnboardResult>(`/projects/${id}/onboard`, { method: 'POST' }),
+  onboardAll: () =>
+    req<{ onboarded: OnboardResult[]; failed: Array<{ projectId: number; name: string; error: string }> }>(
+      '/onboard-all',
+      { method: 'POST' }
+    ),
 
   // Moved / renamed folders
   relocateCandidates: (id: number) =>

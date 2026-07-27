@@ -5,6 +5,7 @@ import type {
   LaunchProfile,
   Note,
   Priority,
+  PortCheck,
   Project,
   ProjectAudit,
   RelocateCandidate,
@@ -17,6 +18,7 @@ import { ACTIVITY_META, dueMeta, PRIORITY_CLS, relativeTime, STATUS_META } from 
 import { renderMarkdown } from '../markdown'
 import { Badge, Button, EmptyState, IconButton, inputCls, Modal, useToast } from './ui'
 import { ItemTags } from './ItemTags'
+import { DiffView } from './DiffView'
 import {
   IconArchive,
   IconArrowDown,
@@ -34,6 +36,7 @@ import {
   IconPlus,
   IconRefresh,
   IconRobot,
+  IconServer,
   IconStar,
   IconTerminal,
   IconTrash
@@ -96,6 +99,7 @@ export function ProjectDetail({
   const [nameDraft, setNameDraft] = useState(project.name)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [liveOpen, setLiveOpen] = useState(false)
+  const [portOpen, setPortOpen] = useState(false)
   const [renameFolderOpen, setRenameFolderOpen] = useState(false)
   const [tagDraft, setTagDraft] = useState('')
   const toast = useToast()
@@ -240,6 +244,16 @@ export function ProjectDetail({
           ) : (
             <Button variant="ghost" onClick={() => setLiveOpen(true)}><IconGlobe /> Add live site</Button>
           )}
+          {project.devPort ? (
+            <div className="group inline-flex items-center">
+              <Button variant="subtle" title={`http://localhost:${project.devPort}`} onClick={() => guard(() => api.openDev(project.id), `Opening localhost:${project.devPort}…`)}>
+                <IconServer /> localhost:{project.devPort}
+              </Button>
+              <IconButton title="Dev port settings" className="h-7 w-7 opacity-0 group-hover:opacity-100" onClick={() => setPortOpen(true)}><IconEdit width={13} height={13} /></IconButton>
+            </div>
+          ) : (
+            <Button variant="ghost" onClick={() => setPortOpen(true)}><IconServer /> Set dev port</Button>
+          )}
           <div className="mx-1 h-5 w-px bg-line" />
           {profiles.map((p) => (
             <div key={p.id} className="group inline-flex items-center">
@@ -276,6 +290,10 @@ export function ProjectDetail({
         <LiveSiteModal project={project} onClose={() => setLiveOpen(false)} onChanged={onChanged} />
       )}
 
+      {portOpen && (
+        <DevPortModal project={project} onClose={() => setPortOpen(false)} onChanged={onChanged} />
+      )}
+
       {renameFolderOpen && (
         <RenameFolderModal
           project={project}
@@ -297,6 +315,121 @@ export function ProjectDetail({
         </Modal>
       )}
     </div>
+  )
+}
+
+// ---------- Dev server port ----------
+// Which localhost this project runs on. The port can be detected from the project's own
+// config files, claimed from Launchpad's free-port suggestions, or typed in.
+function DevPortModal({
+  project,
+  onClose,
+  onChanged
+}: {
+  project: Project
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [value, setValue] = useState(project.devPort ? String(project.devPort) : '')
+  const [busy, setBusy] = useState(false)
+  const [check, setCheck] = useState<PortCheck | null>(null)
+  const [suggested, setSuggested] = useState<number[]>([])
+  const toast = useToast()
+
+  const run = async (fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(true)
+    try {
+      await fn()
+      if (ok) toast(ok)
+      onChanged()
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Check availability as the user types, but only once the number looks plausible.
+  useEffect(() => {
+    const port = Number(value)
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      setCheck(null)
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      api.checkPort(port).then((r) => { if (!cancelled) setCheck(r) }).catch(() => setCheck(null))
+    }, 300)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [value])
+
+  useEffect(() => { api.suggestPorts(4).then((r) => setSuggested(r.ports)).catch(() => setSuggested([])) }, [])
+
+  const save = () =>
+    run(() => api.setPort(project.id, value.trim() ? Number(value) : null), 'Dev port saved')
+
+  const detect = () =>
+    run(async () => {
+      const result = await api.detectPort(project.id)
+      if (!result.port) {
+        toast('Nothing found in this project’s config — pick one below.', 'error')
+        return
+      }
+      setValue(String(result.port))
+      toast(`Found port ${result.port} in ${result.source}`)
+    })
+
+  return (
+    <Modal title="Dev server port" onClose={onClose}>
+      <label className="mb-1 block text-sm font-medium text-ink-soft">Port</label>
+      <div className="flex gap-2">
+        <input
+          className={inputCls}
+          inputMode="numeric"
+          placeholder="7420"
+          value={value}
+          onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ''))}
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+        />
+        <Button variant="primary" disabled={busy} onClick={save}>Save</Button>
+      </div>
+
+      {check && (
+        <p className={`mt-1.5 text-xs ${check.available ? 'text-brand-strong' : 'text-amber-700'}`}>
+          {check.reason}
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button variant="subtle" disabled={busy} onClick={detect}>Detect from project files</Button>
+        {value && <Button variant="ghost" disabled={busy} onClick={() => { setValue(''); }}>Clear</Button>}
+      </div>
+
+      {suggested.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-medium text-ink-soft">Free ports you could claim</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {suggested.map((p) => (
+              <button
+                key={p}
+                onClick={() => setValue(String(p))}
+                className="rounded-lg border border-line px-2 py-1 font-mono text-xs text-ink-soft hover:border-brand hover:text-ink"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-ink-faint">
+        Saving only records the port here — it doesn&apos;t change the project&apos;s config. Set the
+        same port in the project&apos;s dev server so the two agree.
+        {project.devPortSource && project.devPortSource !== 'manual' && (
+          <> Current value came from <span className="font-mono">{project.devPortSource}</span>.</>
+        )}
+      </p>
+    </Modal>
   )
 }
 
@@ -637,7 +770,7 @@ function OverviewTab({ project, onChanged }: { project: Project; onChanged: () =
         <textarea className={`${inputCls} min-h-[90px] resize-y`} value={description} onChange={(e) => { setDescription(e.target.value); setDirty(true) }} />
         {dirty && <div className="mt-2"><Button variant="primary" onClick={save}>Save description</Button></div>}
       </div>
-      <AgentPanel project={project} />
+      <AgentPanel project={project} onChanged={onChanged} />
       <AuditPanel projectId={project.id} />
     </div>
   )
@@ -645,9 +778,23 @@ function OverviewTab({ project, onChanged }: { project: Project; onChanged: () =
 
 // Everything needed to hand this specific project to an AI agent — no project-picking
 // required on the agent's side.
-function AgentPanel({ project }: { project: Project }) {
+function AgentPanel({ project, onChanged }: { project: Project; onChanged: () => void }) {
   const [copied, setCopied] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const toast = useToast()
+
+  const onboard = async () => {
+    setBusy(true)
+    try {
+      const result = await api.onboard(project.id)
+      toast(`Onboarded — wrote ${result.bindingPath}`)
+      onChanged()
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const copy = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text)
@@ -700,14 +847,38 @@ function AgentPanel({ project }: { project: Project }) {
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" onClick={copyPrompt}>
-          {copied === 'prompt' ? 'Copied!' : 'Copy agent prompt'}
-        </Button>
+        {project.onboarded ? (
+          <Button variant="primary" onClick={copyPrompt}>
+            {copied === 'prompt' ? 'Copied!' : 'Copy agent prompt'}
+          </Button>
+        ) : (
+          <Button variant="primary" disabled={busy || !project.pathExists} onClick={onboard}>
+            {busy ? 'Onboarding…' : 'Onboard this project'}
+          </Button>
+        )}
         <Button variant="subtle" onClick={writeInstructions}>Write CLAUDE.md block</Button>
+        {!project.onboarded && (
+          <Button variant="ghost" onClick={copyPrompt}>
+            {copied === 'prompt' ? 'Copied!' : 'Copy agent prompt'}
+          </Button>
+        )}
       </div>
       <p className="mt-2 text-xs text-ink-faint">
-        The prompt names this project explicitly. The CLAUDE.md block does the same inside the repo,
-        so an agent opening the folder knows about Launchpad without being told.
+        {project.onboarded ? (
+          <>
+            Onboarded — <span className="font-mono">ai-instructions/.launchpad.json</span> binds this
+            folder, so an agent working here resolves to project #{project.id} with no flags.
+          </>
+        ) : !project.pathExists ? (
+          <>Can&apos;t onboard: this project&apos;s folder is missing on disk.</>
+        ) : (
+          <>
+            Onboarding writes the binding and the Launchpad block into{' '}
+            <span className="font-mono">ai-instructions/</span> so an agent opening this folder knows
+            about Launchpad without being told. Same as running{' '}
+            <span className="font-mono">launchpad onboard</span> in the project.
+          </>
+        )}
       </p>
     </div>
   )
@@ -998,9 +1169,21 @@ function NotesTab({ projectId, onChanged }: { projectId: number; onChanged: () =
 
 // ---------- Git history ----------
 function GitTab({ projectId, hasGit }: { projectId: number; hasGit: boolean }) {
-  const [commits, setCommits] = useState<GitCommit[] | null>(null)
-  useEffect(() => { if (hasGit) api.commits(projectId).then(setCommits); else setCommits([]) }, [projectId, hasGit])
   if (!hasGit) return <EmptyState title="No git repository" hint="This project isn't a git repo." />
+  return (
+    <div className="space-y-5">
+      <DiffView projectId={projectId} />
+      <div>
+        <p className="mb-2 text-sm font-semibold text-ink">Recent commits</p>
+        <CommitList projectId={projectId} />
+      </div>
+    </div>
+  )
+}
+
+function CommitList({ projectId }: { projectId: number }) {
+  const [commits, setCommits] = useState<GitCommit[] | null>(null)
+  useEffect(() => { api.commits(projectId).then(setCommits).catch(() => setCommits([])) }, [projectId])
   if (commits === null) return <div className="text-sm text-ink-faint">Loading…</div>
   if (commits.length === 0) return <EmptyState title="No commits" />
   return (

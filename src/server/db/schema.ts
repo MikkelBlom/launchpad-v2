@@ -168,6 +168,14 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       ALTER TABLE projects ADD COLUMN live_url TEXT;
       ALTER TABLE projects ADD COLUMN vercel_project_id TEXT;
     `)
+  },
+  // v5 — the localhost port a project's dev server runs on, so "which port was that
+  // again?" is answerable from one place (and agents can claim a free one).
+  (db) => {
+    db.exec(`
+      ALTER TABLE projects ADD COLUMN dev_port INTEGER;
+      ALTER TABLE projects ADD COLUMN dev_port_source TEXT;
+    `)
   }
 ]
 

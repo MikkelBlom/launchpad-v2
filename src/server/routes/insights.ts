@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { getActivity, getStats, search } from '../services/insights.ts'
-import { recentCommits } from '../services/gitHistory.ts'
+import { projectDiff, recentCommits } from '../services/gitHistory.ts'
 import { findDuplicates, mergeProjects } from '../services/duplicates.ts'
 import { getProject } from '../repo/projects.ts'
 
@@ -21,6 +21,12 @@ export async function insightRoutes(app: FastifyInstance): Promise<void> {
     const project = getProject(Number((req.params as { id: string }).id))
     if (!project) return reply.code(404).send({ error: 'Project not found' })
     return recentCommits(project.path, 25)
+  })
+
+  app.get('/projects/:id/diff', async (req, reply) => {
+    const project = getProject(Number((req.params as { id: string }).id))
+    if (!project) return reply.code(404).send({ error: 'Project not found' })
+    return projectDiff(project.path, (req.query as { staged?: string }).staged === 'true')
   })
 
   app.get('/duplicates', async () => findDuplicates())

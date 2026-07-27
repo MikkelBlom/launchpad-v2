@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { applyPush, PlanError } from '../services/agentPush.ts'
 import { auditAll, auditProject } from '../services/audit.ts'
 import { renderAgentPrompt, writeAgentInstructions } from '../services/agentDocs.ts'
+import { onboardAllProjects, onboardProject, OnboardError } from '../services/onboarding.ts'
 import { listChanges } from '../repo/changes.ts'
 import { getProject } from '../repo/projects.ts'
 import { provenanceFrom } from '../services/provenance.ts'
@@ -45,6 +46,21 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: String(error instanceof Error ? error.message : error) })
     }
   })
+
+  // One-click equivalent of running `launchpad onboard` inside the project folder:
+  // binding + CLAUDE.md block + LAUNCHPAD.md snapshot, all written server-side.
+  app.post('/projects/:id/onboard', async (req, reply) => {
+    try {
+      return onboardProject(Number((req.params as { id: string }).id))
+    } catch (error) {
+      if (error instanceof OnboardError) return reply.code(error.status).send({ error: error.message })
+      return reply.code(500).send({ error: String(error instanceof Error ? error.message : error) })
+    }
+  })
+
+  // Every project that isn't onboarded yet. Per-project failures come back in `failed`
+  // rather than aborting the batch.
+  app.post('/onboard-all', async () => onboardAllProjects())
 
   app.get('/changes', async (req) => {
     const query = req.query as { limit?: string; projectId?: string; source?: string }

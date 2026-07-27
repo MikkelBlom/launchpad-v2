@@ -172,6 +172,15 @@ export const IconList = (p: IconProps) => (
 )
 export const IconClock2 = IconClock
 
+export const IconServer = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="7" rx="1.5" />
+    <rect x="3" y="13" width="18" height="7" rx="1.5" />
+    <line x1="7" y1="7.5" x2="7.01" y2="7.5" />
+    <line x1="7" y1="16.5" x2="7.01" y2="16.5" />
+  </svg>
+)
+
 export const IconGlobe = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="9" />

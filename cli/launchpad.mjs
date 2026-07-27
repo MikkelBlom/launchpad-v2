@@ -248,6 +248,8 @@ RULES
   · Always --dry-run a push first, then apply.
   · Every command targets the project bound to the current folder. Use --project to override.
   · Add --json to any read command for machine-readable output.
+  · Never invent a dev-server port. Ask for a free one (launchpad ports free), claim it
+    (launchpad set port <n>), then configure the dev server to use exactly that port.
 
 TARGETING (most explicit wins)
   --project <id|name>  →  $LAUNCHPAD_PROJECT  →  ai-instructions/.launchpad.json  →  cwd path
@@ -283,6 +285,27 @@ PROJECT
   launchpad tag rm <name>
   launchpad tags                       Every tag in Launchpad
   launchpad register <path> [--name "<name>"]         Add an existing folder as a project
+
+PORTS — which localhost each project runs on
+  launchpad ports [--json]             Every project's port, whether something is listening
+                                       on it, conflicts, and ports in use that no project
+                                       claims. Ends with free ports you may take.
+  launchpad ports check <port> [--json]   Is it free, and who claims it
+  launchpad ports free [--count 3] [--json]   Free ports Launchpad suggests
+  launchpad set port <number>          Claim that port for this project
+  launchpad set port none              Release it
+  launchpad ports detect               Read this project's own config and store the port it
+                                       declares (.claude/launch.json, vite.config, package.json
+                                       scripts, next.config, .env, docker-compose,
+                                       launchSettings.json — first match wins)
+
+  PICKING A PORT — do it in this order, never guess:
+    launchpad ports free               1. see what is actually free right now
+    launchpad set port 7431            2. claim it in Launchpad before you use it
+                                       3. configure the project's dev server (vite.config,
+                                          .claude/launch.json, the npm script) to that port
+  3000, 3001 and 5000 are permanently taken on this machine, and 7420/7421 are Launchpad's
+  own. They are never suggested — do not use them.
 
 TASKS
   launchpad task add "<title>" [--body "…"] [--priority high|medium|low]
@@ -539,8 +562,29 @@ async function cmdSet(positional) {
     }
     const updated = await patch(`/api/projects/${project.id}`, { status: value })
     emit(updated, () => out(`✓ "${project.name}" is now ${value}`))
+  } else if (field === 'port') {
+    if (!value) throw new CliError('Usage: launchpad set port <number|none>')
+    const clearing = ['none', 'null', 'clear', 'off'].includes(value.toLowerCase())
+    const port = clearing ? null : Number(value)
+    if (!clearing && !Number.isInteger(port)) {
+      throw new CliError('Usage: launchpad set port <number|none>')
+    }
+    // Claiming is deliberate, so a taken port is a warning rather than a refusal — but the
+    // agent must see it, otherwise two projects quietly end up on the same localhost.
+    const check = clearing ? null : await getJson(`/api/ports/check?port=${port}`)
+    const updated = await post(`/api/projects/${project.id}/port`, { port })
+    emit({ ...updated, check }, () => {
+      if (clearing) return out(`✓ Released the dev port for "${project.name}"`)
+      out(`✓ "${project.name}" claims port ${port}  →  http://localhost:${port}`)
+      const others = (check?.claimedBy ?? '')
+        .split(', ')
+        .filter((name) => name && name !== project.name)
+      if (others.length > 0) out(`  ! Also claimed by ${others.join(', ')} — one of you must move.`)
+      else if (check?.listening) out(`  ! Something else is already listening on ${port}.`)
+      out(`  Now configure the dev server to use ${port}.`)
+    })
   } else {
-    throw new CliError('Usage: launchpad set description|status "<value>"')
+    throw new CliError('Usage: launchpad set description|status|port "<value>"')
   }
 }
 
@@ -585,6 +629,99 @@ async function cmdTag(positional) {
   } else {
     throw new CliError('Usage: launchpad tag add|rm <name>')
   }
+}
+
+// ---------------------------------------------------------------- commands: ports
+
+function printPortOverview(overview) {
+  const claimed = overview.projects.filter((p) => p.devPort !== null)
+  const unclaimed = overview.projects.filter((p) => p.devPort === null)
+  const claimedSet = new Set(claimed.map((p) => p.devPort))
+
+  if (claimed.length === 0) {
+    out('No project claims a dev port yet.  →  launchpad ports detect')
+  } else {
+    const width = Math.max(...claimed.map((p) => p.name.length))
+    out('Project dev ports')
+    for (const p of claimed) {
+      const source = p.devPortSource ? `  (${p.devPortSource})` : ''
+      const conflict = p.conflictsWith.length > 0 ? `  ! also claimed by ${p.conflictsWith.join(', ')}` : ''
+      out(
+        `  #${String(p.projectId).padEnd(3)} ${p.name.padEnd(width)}  ${String(p.devPort).padEnd(5)} ` +
+          `${p.listening ? '● live' : '○ idle'}  ${p.url}${source}${conflict}`
+      )
+    }
+  }
+
+  if (unclaimed.length > 0) {
+    out('')
+    out(`No port claimed (${unclaimed.length})`)
+    out(`  ${unclaimed.map((p) => p.name).join(', ')}`)
+    out('  → launchpad ports detect --project "<name>"')
+  }
+
+  // Everything else holding a port on this machine — the answer to "what is on 4200?"
+  // Windows hands out 49152+ to outbound sockets and RPC, so those are noise, not servers.
+  const foreign = overview.listening.filter((port) => !claimedSet.has(port))
+  const notable = foreign.filter((port) => port < 49152)
+  if (notable.length > 0) {
+    out('')
+    out(`In use on this machine, claimed by no project (${notable.length})`)
+    for (let i = 0; i < notable.length; i += 14) out(`  ${notable.slice(i, i + 14).join(', ')}`)
+    const dynamic = foreign.length - notable.length
+    if (dynamic > 0) out(`  (+${dynamic} more in the dynamic range above 49152 — not dev servers)`)
+  }
+
+  out('')
+  out(`Free to claim: ${overview.suggested.join(', ') || '(none found)'}`)
+}
+
+async function cmdPorts(positional) {
+  const action = positional[1]
+
+  if (action === 'check') {
+    const port = Number(positional[2])
+    if (!Number.isFinite(port)) throw new CliError('Usage: launchpad ports check <port>')
+    const result = await getJson(`/api/ports/check?port=${port}`)
+    emit(result, () => {
+      out(`${result.available ? '✓' : '✗'} Port ${result.port} — ${result.available ? 'free to claim' : 'not available'}`)
+      out(`  ${result.reason}`)
+      out(`  listening: ${result.listening ? 'yes' : 'no'}   claimed by: ${result.claimedBy || '(nobody)'}`)
+    })
+    return
+  }
+
+  if (action === 'free') {
+    const count = FLAGS.count !== undefined && FLAGS.count !== true ? Number(FLAGS.count) : 3
+    const result = await getJson(`/api/ports/suggest?count=${Number.isFinite(count) ? count : 3}`)
+    emit(result, () => {
+      if (result.ports.length === 0) return out('No free ports found in the suggestion range.')
+      out(`Free ports: ${result.ports.join(', ')}`)
+      out(`  Claim one with: launchpad set port ${result.ports[0]}`)
+    })
+    return
+  }
+
+  if (action === 'detect') {
+    const project = await resolveProject(FLAGS)
+    const result = await post(`/api/projects/${project.id}/detect-port`)
+    emit(result, () => {
+      if (result.port === null) {
+        out(`No dev port declared in "${project.name}"'s config files.`)
+        out('  → launchpad ports free, then: launchpad set port <number>')
+        return
+      }
+      out(`✓ "${project.name}" runs on http://localhost:${result.port}  (from ${result.source})`)
+    })
+    return
+  }
+
+  if (action !== undefined && action !== 'list') {
+    throw new CliError('Usage: launchpad ports [list|check <port>|free|detect]')
+  }
+
+  const overview = await getJson('/api/ports')
+  emit(overview, () => printPortOverview(overview))
 }
 
 async function cmdTags() {
@@ -854,6 +991,7 @@ const COMMANDS = {
   register: (p) => cmdRegister(p),
   tag: (p) => cmdTag(p),
   tags: cmdTags,
+  ports: (p) => cmdPorts(p),
   task: (p) => cmdItem('task', p),
   tasks: () => cmdItemList('task'),
   idea: (p) => cmdItem('idea', p),

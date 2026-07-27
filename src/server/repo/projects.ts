@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fromBool, getDb, nowIso, toBool } from '../db/database.ts'
 import { tagsByProject, tagsForProject } from './tags.ts'
 import type { GitActivity, GitInfo, Project, ProjectStatus, Tag } from '../../shared/types.ts'
@@ -26,6 +27,8 @@ interface ProjectRow {
   created_at: string
   live_url: string | null
   vercel_project_id: string | null
+  dev_port: number | null
+  dev_port_source: string | null
   note_count: number
   idea_count: number
   open_task_count: number
@@ -87,7 +90,21 @@ function mapRow(row: ProjectRow, tags: Tag[] = []): Project {
     tags,
     liveUrl: row.live_url,
     vercelProjectId: row.vercel_project_id,
-    pathExists: existsSync(row.path)
+    devPort: row.dev_port,
+    devPortSource: row.dev_port_source,
+    pathExists: existsSync(row.path),
+    onboarded: isOnboarded(row.id, row.path)
+  }
+}
+
+// A project counts as onboarded once its folder carries a binding pointing back here —
+// that file is what makes a bare `launchpad pull` inside the folder resolve correctly.
+function isOnboarded(id: number, path: string): boolean {
+  try {
+    const raw = readFileSync(join(path, 'ai-instructions', '.launchpad.json'), 'utf-8')
+    return Number((JSON.parse(raw) as { projectId?: number }).projectId) === id
+  } catch {
+    return false
   }
 }
 
@@ -152,6 +169,8 @@ export interface UpdateProjectInput {
   path?: string
   liveUrl?: string | null
   vercelProjectId?: string | null
+  devPort?: number | null
+  devPortSource?: string | null
 }
 
 export function updateProject(id: number, patch: UpdateProjectInput): Project | null {
@@ -188,6 +207,14 @@ export function updateProject(id: number, patch: UpdateProjectInput): Project | 
   if (patch.vercelProjectId !== undefined) {
     fields.push('vercel_project_id = ?')
     values.push(patch.vercelProjectId)
+  }
+  if (patch.devPort !== undefined) {
+    fields.push('dev_port = ?')
+    values.push(patch.devPort)
+  }
+  if (patch.devPortSource !== undefined) {
+    fields.push('dev_port_source = ?')
+    values.push(patch.devPortSource)
   }
   if (fields.length > 0) {
     values.push(id)

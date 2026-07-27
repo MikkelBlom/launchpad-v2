@@ -161,6 +161,13 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       CREATE INDEX idx_changes_at ON changes(at);
       CREATE INDEX idx_changes_project ON changes(project_id);
     `)
+  },
+  // v4 — live deployment link (Vercel or a hand-entered URL).
+  (db) => {
+    db.exec(`
+      ALTER TABLE projects ADD COLUMN live_url TEXT;
+      ALTER TABLE projects ADD COLUMN vercel_project_id TEXT;
+    `)
   }
 ]
 

@@ -2,7 +2,7 @@ import type { Project } from '../../../shared/types'
 import { api } from '../api'
 import { ACTIVITY_META, relativeTime, STACK_EMOJI, STATUS_META } from '../format'
 import { Badge, IconButton, useToast } from './ui'
-import { IconCode, IconFolder, IconGithub, IconStar, IconTerminal } from './icons'
+import { IconCode, IconFolder, IconGithub, IconGlobe, IconStar, IconTerminal } from './icons'
 
 export function ProjectCard({
   project,
@@ -88,6 +88,12 @@ export function ProjectCard({
           <Badge className="bg-surface-2 text-ink-faint">no git</Badge>
         )}
         {project.git.dirty && <Badge className="bg-amber-100 text-amber-700">uncommitted</Badge>}
+        {project.liveUrl && <Badge className="bg-brand-soft text-brand-strong">live</Badge>}
+        {!project.pathExists && (
+          <span title={project.path}>
+            <Badge className="bg-rose-100 text-rose-700">folder missing</Badge>
+          </span>
+        )}
         {project.stack.map((s) => (
           <span key={s} title={s} className="text-sm">{STACK_EMOJI[s] ?? '📦'}</span>
         ))}
@@ -105,6 +111,9 @@ export function ProjectCard({
           <IconButton title="Open folder" onClick={() => guard(() => api.openFolder(project.id), 'Opening folder…')}><IconFolder /></IconButton>
           {project.git.remoteUrl && (
             <IconButton title="Open on GitHub" onClick={() => guard(() => api.openGithub(project.id), 'Opening GitHub…')}><IconGithub /></IconButton>
+          )}
+          {project.liveUrl && (
+            <IconButton title={`Open live site — ${project.liveUrl}`} onClick={() => guard(() => api.openLive(project.id), 'Opening live site…')}><IconGlobe /></IconButton>
           )}
         </div>
       </div>

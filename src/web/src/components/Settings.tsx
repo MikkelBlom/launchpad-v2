@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppSettings, DuplicateGroup, Tag } from '../../../shared/types'
+import type { AppSettings, DiscoveryResult, DuplicateGroup, Tag } from '../../../shared/types'
 import { api, type ImportResult } from '../api'
 import { Button, EmptyState, IconButton, inputCls, useToast } from './ui'
 import { IconDownload, IconFolder, IconPlus, IconRefresh, IconTrash, IconUpload } from './icons'
@@ -7,7 +7,9 @@ import { IconDownload, IconFolder, IconPlus, IconRefresh, IconTrash, IconUpload 
 export function Settings({ onChanged }: { onChanged: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [newRoot, setNewRoot] = useState('')
+  const [picking, setPicking] = useState(false)
   const [scanning, setScanning] = useState(false)
+  const [scanResult, setScanResult] = useState<DiscoveryResult | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [tags, setTags] = useState<Tag[]>([])
@@ -27,19 +29,29 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
 
   const patch = async (p: Partial<AppSettings>) => setSettings(await api.updateSettings(p))
 
-  const addRoot = async () => {
-    const value = newRoot.trim()
+  const addRootPath = async (value: string) => {
     if (!value) return
     if (settings.projectRoots.includes(value)) return toast('Already added', 'error')
     await patch({ projectRoots: [...settings.projectRoots, value] })
     setNewRoot('')
   }
+  const addRoot = () => addRootPath(newRoot.trim())
+  // Opens a real folder dialog on this machine. The request stays open until the user
+  // answers it, so the button reports that it is waiting. A cancel returns null — silent.
+  const browseRoot = async () => {
+    setPicking(true)
+    try {
+      const { path } = await api.pickFolder('Choose a projects folder')
+      if (path) await addRootPath(path)
+    } catch (e) { toast(String(e instanceof Error ? e.message : e), 'error') } finally { setPicking(false) }
+  }
   const scan = async () => {
     setScanning(true)
     try {
       const r = await api.scan()
+      setScanResult(r)
       onChanged()
-      toast(r.added.length ? `Found ${r.added.length} new project(s)` : 'Rescanned — no new projects')
+      toast(scanSummary(r))
     } catch (e) { toast(String(e instanceof Error ? e.message : e), 'error') } finally { setScanning(false) }
   }
   const runImport = async () => {
@@ -98,9 +110,13 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
             ))
           )}
           <div className="flex gap-2">
-            <input className={`${inputCls} font-mono text-xs`} placeholder="C:\Users\you\Projects" value={newRoot} onChange={(e) => setNewRoot(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addRoot()} />
-            <Button variant="subtle" onClick={addRoot}><IconPlus /> Add</Button>
+            <Button variant="subtle" className="shrink-0 whitespace-nowrap" onClick={browseRoot} disabled={picking}>
+              <IconFolder /> {picking ? 'Waiting for folder…' : 'Browse…'}
+            </Button>
+            <input className={`${inputCls} font-mono text-xs`} placeholder="…or type C:\Users\you\Projects" value={newRoot} onChange={(e) => setNewRoot(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addRoot()} />
+            <Button variant="subtle" className="shrink-0" onClick={addRoot}><IconPlus /> Add</Button>
           </div>
+          {picking && <p className="text-xs text-ink-faint">A folder picker is open on your desktop — choose a folder or cancel it.</p>}
         </div>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="text-sm">
@@ -113,6 +129,40 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           </label>
           <Button variant="primary" onClick={scan} disabled={scanning}><IconRefresh /> {scanning ? 'Scanning…' : 'Scan now'}</Button>
         </div>
+        {scanResult && <ScanReport result={scanResult} />}
+      </section>
+
+      <section className={`${card} space-y-4`}>
+        <h2 className="text-sm font-semibold text-ink">Vercel</h2>
+        <p className="text-sm text-ink-soft">
+          Optional. With a token, a project can be matched to its Vercel deployment (by git remote,
+          then by name) and gets a button that opens the live site. Everything else works without it.
+        </p>
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-ink-soft">Personal access token</span>
+          <input
+            className={inputCls}
+            type="password"
+            autoComplete="off"
+            placeholder="vercel.com → Account Settings → Tokens"
+            value={settings.vercelToken}
+            onChange={(e) => setSettings({ ...settings, vercelToken: e.target.value })}
+            onBlur={() => patch({ vercelToken: settings.vercelToken.trim() })}
+          />
+          <span className="mt-1 block text-xs text-ink-faint">
+            Stored in your local Launchpad database, never sent anywhere but api.vercel.com.
+          </span>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-ink-soft">Team ID (only if your projects live in a team)</span>
+          <input
+            className={inputCls}
+            placeholder="team_…"
+            value={settings.vercelTeamId}
+            onChange={(e) => setSettings({ ...settings, vercelTeamId: e.target.value })}
+            onBlur={() => patch({ vercelTeamId: settings.vercelTeamId.trim() })}
+          />
+        </label>
       </section>
 
       <section className={`${card} space-y-4`}>
@@ -160,17 +210,29 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
 
       <section className={card}>
         <h2 className="text-sm font-semibold text-ink">Clean up duplicates</h2>
-        <p className="mt-0.5 text-sm text-ink-soft">Projects registered inside another project's folder (scan/import overlap).</p>
+        <p className="mt-0.5 text-sm text-ink-soft">
+          Registrations that look like the same project — nested folders, stale paths that no
+          longer exist, and near-identical names. Notes, ideas and tasks are moved to the keeper;
+          nothing on disk is touched.
+        </p>
         <div className="mt-3"><Button variant="subtle" onClick={findDupes}><IconRefresh /> Find duplicates</Button></div>
         {dupes && (
           dupes.length === 0 ? (
-            <p className="mt-3 text-sm text-ink-faint">No nested duplicates found. 🎉</p>
+            <p className="mt-3 text-sm text-ink-faint">No duplicates found. 🎉</p>
           ) : (
             <div className="mt-3 space-y-2">
               {dupes.map((g) => (
                 <div key={g.keeper.id} className="rounded-lg bg-surface-1 p-3 text-sm">
                   <p className="font-medium text-ink">Keep: {g.keeper.name}</p>
-                  <p className="text-xs text-ink-faint">Merge in: {g.nested.map((n) => n.name).join(', ')}</p>
+                  <p className="font-mono text-[11px] text-ink-faint">{g.keeper.path}</p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {g.nested.map((n) => (
+                      <li key={n.id} className="text-xs text-ink-soft">
+                        <span className="text-ink">{n.name}</span> — {n.reason}
+                        <span className="block font-mono text-[11px] text-ink-faint">{n.path}</span>
+                      </li>
+                    ))}
+                  </ul>
                   <div className="mt-2"><Button variant="subtle" onClick={() => merge(g)}>Merge {g.nested.length} into “{g.keeper.name}”</Button></div>
                 </div>
               ))}
@@ -187,7 +249,7 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           <div className="mt-3 space-y-1 rounded-lg bg-surface-1 p-3 text-sm">
             <ImportLine label="Imported" items={importResult.imported.map((x) => x.name)} tone="text-brand-strong" />
             <ImportLine label="Relocated" items={importResult.relocated.map((x) => `${x.name} → ${x.to}`)} tone="text-sky-700" />
-            <ImportLine label="Already present" items={importResult.skipped.map((x) => x.name)} tone="text-ink-faint" />
+            <ImportLine label="Already present" items={importResult.skipped.map((x) => (x.reason ? `${x.name} — ${x.reason}` : x.name))} tone="text-ink-faint" />
             <ImportLine label="Not found" items={importResult.notFound.map((x) => `${x.name} (${x.path})`)} tone="text-rose-600" />
           </div>
         )}
@@ -211,6 +273,48 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
         <code className="mt-2 block rounded-lg bg-surface-1 px-3 py-2 font-mono text-xs text-ink ring-1 ring-line">cd launchpad-v2 &amp;&amp; npm link</code>
         <p className="mt-2 text-xs text-ink-faint">Then from any project: <span className="font-mono">launchpad pull</span></p>
       </section>
+    </div>
+  )
+}
+
+// The server explains the outcome itself; fall back only if an older server (or one
+// mid-deploy) returns a result without a message.
+function scanSummary(result: DiscoveryResult): string {
+  if (result.message) return result.message
+  const added = Array.isArray(result.added) ? result.added.length : 0
+  return added ? `Found ${added} new project(s)` : 'Rescanned — no new projects'
+}
+
+// "No projects found" on its own is useless — show which root produced what, and call
+// out roots that aren't on disk, since that is the usual reason a scan comes back empty.
+function ScanReport({ result }: { result: DiscoveryResult }) {
+  const roots = Array.isArray(result.roots) ? result.roots : []
+  const missing = roots.filter((r) => !r.exists)
+  const present = roots.filter((r) => r.exists)
+  const added = Array.isArray(result.added) ? result.added : []
+
+  return (
+    <div className="mt-3 space-y-2 rounded-lg bg-surface-1 p-3 text-sm">
+      <p className="text-ink-soft">{scanSummary(result)}</p>
+      {missing.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="font-medium text-rose-600">Not found on disk ({missing.length}):</p>
+          {missing.map((r) => (
+            <p key={r.path} className="font-mono text-xs text-rose-600">{r.path}</p>
+          ))}
+          <p className="text-xs text-ink-faint">Fix the path or remove the root — nothing under it can be scanned.</p>
+        </div>
+      )}
+      {present.length > 0 && (
+        <div className="space-y-0.5">
+          {present.map((r) => (
+            <p key={r.path} className="text-xs text-ink-faint">
+              <span className="font-mono">{r.path}</span> — {r.candidates} candidate{r.candidates === 1 ? '' : 's'}, {r.added} added
+            </p>
+          ))}
+        </div>
+      )}
+      <ImportLine label="Added" items={added} tone="text-brand-strong" />
     </div>
   )
 }

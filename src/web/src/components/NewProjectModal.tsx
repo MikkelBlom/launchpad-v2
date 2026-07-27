@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Project } from '../../../shared/types'
 import { api } from '../api'
 import { Button, Field, inputCls, Modal, useToast } from './ui'
+import { IconFolder } from './icons'
 
 export function NewProjectModal({
   onClose,
@@ -17,6 +18,7 @@ export function NewProjectModal({
   const [createGithub, setCreateGithub] = useState(false)
   const [githubPrivate, setGithubPrivate] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [picking, setPicking] = useState(false)
   const toast = useToast()
 
   useEffect(() => {
@@ -24,6 +26,20 @@ export function NewProjectModal({
       if (s.projectRoots[0]) setParentPath(s.projectRoots[0])
     })
   }, [])
+
+  // Opens a native folder dialog on this machine; the request stays open until the user
+  // answers. Cancelling returns null and leaves whatever was typed alone.
+  const browseParent = async () => {
+    setPicking(true)
+    try {
+      const { path } = await api.pickFolder('Choose where the new project folder goes')
+      if (path) setParentPath(path)
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setPicking(false)
+    }
+  }
 
   const create = async () => {
     if (!name.trim()) return toast('Name is required', 'error')
@@ -58,7 +74,13 @@ export function NewProjectModal({
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="My New Thing" autoFocus />
         </Field>
         <Field label="Parent folder">
-          <input className={`${inputCls} font-mono text-xs`} value={parentPath} onChange={(e) => setParentPath(e.target.value)} placeholder="C:\Users\you\Projects" />
+          <div className="flex gap-2">
+            <input className={`${inputCls} font-mono text-xs`} value={parentPath} onChange={(e) => setParentPath(e.target.value)} placeholder="C:\Users\you\Projects" />
+            <Button variant="subtle" className="shrink-0 whitespace-nowrap" onClick={browseParent} disabled={picking}>
+              <IconFolder /> {picking ? 'Waiting…' : 'Browse…'}
+            </Button>
+          </div>
+          {picking && <span className="mt-1 block text-xs font-normal text-ink-faint">A folder picker is open on your desktop.</span>}
         </Field>
         <Field label="Description">
           <textarea className={`${inputCls} min-h-[70px] resize-y`} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this?" />

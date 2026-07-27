@@ -25,11 +25,17 @@ export async function insightRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/duplicates', async () => findDuplicates())
 
+  // `mergeIds` is the accurate name now that duplicates aren't only nested ones; `nestedIds`
+  // stays accepted so an older UI build keeps working.
   app.post('/merge', async (req, reply) => {
-    const body = req.body as { keeperId?: number; nestedIds?: number[] }
-    if (!body?.keeperId || !Array.isArray(body.nestedIds)) {
-      return reply.code(400).send({ error: 'keeperId and nestedIds are required' })
+    const body = req.body as { keeperId?: number; mergeIds?: number[]; nestedIds?: number[] }
+    const mergeIds = body?.mergeIds ?? body?.nestedIds
+    if (!body?.keeperId || !Array.isArray(mergeIds)) {
+      return reply.code(400).send({ error: 'keeperId and mergeIds are required' })
     }
-    return mergeProjects(body.keeperId, body.nestedIds)
+    if (!getProject(body.keeperId)) {
+      return reply.code(404).send({ error: 'Keeper project not found' })
+    }
+    return mergeProjects(body.keeperId, mergeIds)
   })
 }

@@ -4,6 +4,7 @@ import { discoverProjects, scanAll } from '../services/scanner.ts'
 import { importOldLaunchpad } from '../services/importer.ts'
 import { exportAll, importAll, type BackupData } from '../services/backup.ts'
 import { openFolder } from '../services/launcher.ts'
+import { pickFolder } from '../services/folderPicker.ts'
 import { getDataDir, getPort } from '../config.ts'
 import { nowIso } from '../db/database.ts'
 
@@ -13,7 +14,7 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     ok: true,
     service: 'launchpad',
     port: getPort(),
-    apiVersion: 3
+    apiVersion: 4
   }))
 
   app.get('/settings', async () => getSettings())
@@ -30,6 +31,14 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
   app.post('/rescan', async () => {
     await scanAll()
     return { ok: true }
+  })
+
+  // Open a native folder chooser on the machine running the service, so the UI never has
+  // to make the user type a path. Blocks until the user answers; `null` means cancelled,
+  // timed out, or unsupported platform — the UI falls back to typing.
+  app.post('/pick-folder', async (req) => {
+    const title = (req.body as { title?: string } | undefined)?.title
+    return { path: await pickFolder(typeof title === 'string' ? title : undefined) }
   })
 
   app.get('/data-dir', async () => ({ dataDir: getDataDir() }))

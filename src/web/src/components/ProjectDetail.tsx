@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type SVGProps } from 'react'
 import type {
   GitCommit,
   Idea,
@@ -7,8 +7,10 @@ import type {
   Priority,
   Project,
   ProjectAudit,
+  RelocateCandidate,
   Task,
-  TaskStatus
+  TaskStatus,
+  VercelProject
 } from '../../../shared/types'
 import { api } from '../api'
 import { ACTIVITY_META, dueMeta, PRIORITY_CLS, relativeTime, STATUS_META } from '../format'
@@ -39,6 +41,46 @@ import {
 
 type Tab = 'overview' | 'tasks' | 'ideas' | 'notes' | 'git' | 'readme'
 
+// Local icons — icons.tsx is shared across views and these two are only used here.
+const iconBase = (p: SVGProps<SVGSVGElement>) => ({
+  width: 16,
+  height: 16,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  ...p
+})
+
+const IconGlobe = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...iconBase(p)}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="2" y1="12" x2="22" y2="12" />
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+  </svg>
+)
+
+const IconAlert = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...iconBase(p)}>
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+)
+
+// The trailing path segment, without pulling node:path into the browser bundle.
+function folderNameOf(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? path
+}
+
+function parentOf(path: string): string {
+  const name = folderNameOf(path)
+  return path.slice(0, Math.max(0, path.length - name.length))
+}
+
 export function ProjectDetail({
   project,
   onBack,
@@ -53,6 +95,8 @@ export function ProjectDetail({
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState(project.name)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [liveOpen, setLiveOpen] = useState(false)
+  const [renameFolderOpen, setRenameFolderOpen] = useState(false)
   const [tagDraft, setTagDraft] = useState('')
   const toast = useToast()
 
@@ -98,6 +142,8 @@ export function ProjectDetail({
         <IconChevronLeft /> All projects
       </button>
 
+      {!project.pathExists && <MissingPathBanner project={project} onChanged={onChanged} />}
+
       <div className="rounded-xl border border-line bg-surface-0 p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -115,12 +161,28 @@ export function ProjectDetail({
               ) : (
                 <h1 className="truncate text-xl font-semibold text-ink">{project.name}</h1>
               )}
-              <IconButton title="Rename" onClick={() => setRenaming(true)}><IconEdit width={15} height={15} /></IconButton>
+              <IconButton title="Rename in Launchpad — display name only, the folder is untouched" onClick={() => setRenaming(true)}><IconEdit width={15} height={15} /></IconButton>
               <button onClick={() => guard(() => api.updateProject(project.id, { isFavorite: !project.isFavorite }).then(onChanged), '')} title="Toggle star">
                 <IconStar width={18} height={18} className={project.isFavorite ? 'fill-amber-400 text-amber-400' : 'text-ink-faint hover:text-amber-400'} />
               </button>
             </div>
-            <p className="mt-1 truncate font-mono text-xs text-ink-faint">{project.path}</p>
+            {renaming && (
+              <p className="mt-1 text-xs text-ink-faint">
+                This is the display name only — your folder on disk is never touched.
+              </p>
+            )}
+            <div className="mt-1 flex items-center gap-1">
+              <p className={`truncate font-mono text-xs ${project.pathExists ? 'text-ink-faint' : 'text-rose-600 line-through'}`}>
+                {project.path}
+              </p>
+              <IconButton
+                title="Rename the folder on disk"
+                className="h-6 w-6 shrink-0"
+                onClick={() => setRenameFolderOpen(true)}
+              >
+                <IconEdit width={12} height={12} />
+              </IconButton>
+            </div>
           </div>
           <select
             className="shrink-0 rounded-lg border border-line bg-surface-0 px-2 py-1.5 text-sm text-ink outline-none focus:border-brand"
@@ -170,6 +232,14 @@ export function ProjectDetail({
           <Button variant="subtle" onClick={() => guard(() => api.openTerminal(project.id), 'Opening terminal…')}><IconTerminal /> Terminal</Button>
           <Button variant="subtle" onClick={() => guard(() => api.openFolder(project.id), 'Opening folder…')}><IconFolder /> Folder</Button>
           {project.git.remoteUrl && <Button variant="subtle" onClick={() => guard(() => api.openGithub(project.id), 'Opening GitHub…')}><IconGithub /> GitHub</Button>}
+          {project.liveUrl ? (
+            <div className="group inline-flex items-center">
+              <Button variant="subtle" title={project.liveUrl} onClick={() => guard(() => api.openLive(project.id), 'Opening live site…')}><IconGlobe /> Live</Button>
+              <IconButton title="Live site settings" className="h-7 w-7 opacity-0 group-hover:opacity-100" onClick={() => setLiveOpen(true)}><IconEdit width={13} height={13} /></IconButton>
+            </div>
+          ) : (
+            <Button variant="ghost" onClick={() => setLiveOpen(true)}><IconGlobe /> Add live site</Button>
+          )}
           <div className="mx-1 h-5 w-px bg-line" />
           {profiles.map((p) => (
             <div key={p.id} className="group inline-flex items-center">
@@ -202,6 +272,18 @@ export function ProjectDetail({
         {tab === 'readme' && <ReadmeTab projectId={project.id} />}
       </div>
 
+      {liveOpen && (
+        <LiveSiteModal project={project} onClose={() => setLiveOpen(false)} onChanged={onChanged} />
+      )}
+
+      {renameFolderOpen && (
+        <RenameFolderModal
+          project={project}
+          onClose={() => setRenameFolderOpen(false)}
+          onChanged={onChanged}
+        />
+      )}
+
       {confirmDelete && (
         <Modal title="Delete project?" onClose={() => setConfirmDelete(false)}>
           <p className="text-sm text-ink-soft">
@@ -215,6 +297,299 @@ export function ProjectDetail({
         </Modal>
       )}
     </div>
+  )
+}
+
+// ---------- Live site (Vercel) ----------
+// A project's live URL can be typed in by hand or detected from Vercel. Detection never
+// overwrites a URL that is already set — the server only fills an empty one.
+function LiveSiteModal({
+  project,
+  onClose,
+  onChanged
+}: {
+  project: Project
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [url, setUrl] = useState(project.liveUrl ?? '')
+  const [busy, setBusy] = useState(false)
+  const [remote, setRemote] = useState<VercelProject[] | null>(null)
+  const toast = useToast()
+
+  const run = async (fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(true)
+    try {
+      await fn()
+      if (ok) toast(ok)
+      onChanged()
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const save = () => run(() => api.setLiveUrl(project.id, url.trim() || null), 'Live URL saved')
+
+  const detect = () =>
+    run(async () => {
+      const result = await api.vercelDetect(project.id)
+      if (!result.matched) {
+        toast('No matching Vercel project found — link one manually below.', 'error')
+        return
+      }
+      setUrl(result.project.liveUrl ?? '')
+      toast(
+        project.liveUrl && project.liveUrl !== result.project.liveUrl
+          ? `Linked to "${result.matched.name}" — your own URL was kept`
+          : `Matched "${result.matched.name}"`
+      )
+    })
+
+  const browse = () => run(async () => setRemote(await api.vercelProjects()))
+
+  const link = (vercelProjectId: string) =>
+    run(async () => {
+      const updated = await api.vercelLink(project.id, vercelProjectId)
+      setUrl(updated.liveUrl ?? '')
+    }, 'Linked to Vercel')
+
+  const unlink = () => run(() => api.vercelLink(project.id, null), 'Unlinked from Vercel')
+
+  return (
+    <Modal title="Live site" onClose={onClose}>
+      <label className="mb-1 block text-sm font-medium text-ink-soft">Live URL</label>
+      <div className="flex gap-2">
+        <input
+          className={inputCls}
+          placeholder="https://my-project.vercel.app"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+        />
+        <Button variant="primary" disabled={busy} onClick={save}>Save</Button>
+      </div>
+      <p className="mt-1 text-xs text-ink-faint">
+        Anything you type here wins — detecting from Vercel only fills this in when it is empty.
+      </p>
+
+      <div className="mt-5 border-t border-line pt-4">
+        <p className="text-sm font-medium text-ink">Vercel</p>
+        <p className="mt-1 text-sm text-ink-soft">
+          Launchpad matches this project to your Vercel account by its git remote, falling back to
+          the name. Add a personal access token in Settings first.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button variant="subtle" disabled={busy} onClick={detect}>Detect from Vercel</Button>
+          <Button variant="ghost" disabled={busy} onClick={browse}>Browse my Vercel projects</Button>
+          {project.vercelProjectId && (
+            <Button variant="danger" disabled={busy} onClick={unlink}>Unlink</Button>
+          )}
+        </div>
+        {project.vercelProjectId && (
+          <p className="mt-2 font-mono text-xs text-ink-faint">linked: {project.vercelProjectId}</p>
+        )}
+        {remote && (
+          remote.length === 0 ? (
+            <p className="mt-3 text-sm text-ink-faint">No projects in that Vercel account.</p>
+          ) : (
+            <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto rounded-xl border border-line">
+              {remote.map((v) => (
+                <li key={v.id} className="flex items-center gap-2 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-ink">{v.name}</p>
+                    <p className="truncate text-xs text-ink-faint">{v.gitRepo ?? v.url ?? '—'}</p>
+                  </div>
+                  <Button
+                    variant={project.vercelProjectId === v.id ? 'ghost' : 'subtle'}
+                    disabled={busy}
+                    onClick={() => link(v.id)}
+                  >
+                    {project.vercelProjectId === v.id ? 'Linked' : 'Link'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+// ---------- Moved / renamed folders ----------
+// Shown when the folder Launchpad has on record is gone. Offers the two ways out: let
+// Launchpad look for it, or point it at the new location by hand.
+function MissingPathBanner({ project, onChanged }: { project: Project; onChanged: () => void }) {
+  const [candidates, setCandidates] = useState<RelocateCandidate[] | null>(null)
+  const [manual, setManual] = useState('')
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+
+  const run = async (fn: () => Promise<unknown>, ok?: string) => {
+    setBusy(true)
+    try {
+      await fn()
+      if (ok) toast(ok)
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const find = () =>
+    run(async () => {
+      const found = await api.relocateCandidates(project.id)
+      setCandidates(found)
+      if (found.length === 0) toast('No likely folders found under your project roots', 'error')
+    })
+
+  const repoint = (path: string) =>
+    run(async () => {
+      await api.relocateProject(project.id, path)
+      onChanged()
+    }, 'Project re-pointed')
+
+  const pick = () =>
+    run(async () => {
+      const { path } = await api.pickFolder('Where did this project move to?')
+      if (path) setManual(path)
+    })
+
+  return (
+    <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+        <IconAlert width={15} height={15} /> This folder no longer exists
+      </p>
+      <p className="mt-1 break-all font-mono text-xs text-amber-800/80">{project.path}</p>
+      <p className="mt-2 text-sm text-ink-soft">
+        Your notes, ideas and tasks are safe — they live in Launchpad, not in the folder. It was
+        probably renamed or moved outside Launchpad. Point Launchpad at the new location and
+        everything reconnects.
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button variant="primary" disabled={busy} onClick={find}>Find it for me</Button>
+        <Button variant="subtle" disabled={busy} onClick={pick}>Browse…</Button>
+      </div>
+
+      {candidates && candidates.length > 0 && (
+        <ul className="mt-3 divide-y divide-amber-200 rounded-xl border border-amber-200 bg-surface-0">
+          {candidates.map((c) => (
+            <li key={c.path} className="flex items-center gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-ink">{c.name}</p>
+                <p className="truncate font-mono text-xs text-ink-faint">{c.path}</p>
+                <p className="truncate text-xs text-ink-soft">{c.reason}</p>
+              </div>
+              <Button variant="subtle" disabled={busy} onClick={() => repoint(c.path)}>Use this</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-3 flex gap-2">
+        <input
+          className={inputCls}
+          placeholder="…or paste the new folder path"
+          value={manual}
+          onChange={(e) => setManual(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && manual.trim() && repoint(manual.trim())}
+        />
+        <Button variant="subtle" disabled={busy || !manual.trim()} onClick={() => repoint(manual.trim())}>
+          Re-point
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// Renaming the folder on disk is the safe version of what the user would otherwise do in
+// Explorer: Launchpad renames the directory and updates its stored path in one operation.
+function RenameFolderModal({
+  project,
+  onClose,
+  onChanged
+}: {
+  project: Project
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const current = folderNameOf(project.path)
+  const parent = parentOf(project.path)
+  const [name, setName] = useState(current)
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+
+  const trimmed = name.trim()
+  const canRename = trimmed.length > 0 && trimmed !== current && project.pathExists
+
+  const rename = async () => {
+    setBusy(true)
+    try {
+      await api.renameFolder(project.id, trimmed)
+      toast('Folder renamed')
+      onChanged()
+      onClose()
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Rename the folder on disk" onClose={onClose}>
+      <p className="text-sm text-ink-soft">
+        Renaming <span className="font-semibold text-ink">{project.name}</span> in Launchpad only
+        changes the title — it never touches your files. This does the other thing: it renames the
+        actual folder <span className="font-semibold">and</span> updates the path Launchpad has on
+        record, in one step, so the two can never drift apart.
+      </p>
+
+      <label className="mb-1 mt-4 block text-sm font-medium text-ink-soft">Folder name</label>
+      <input
+        autoFocus
+        className={inputCls}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && canRename && !busy && rename()}
+      />
+      <div className="mt-2 space-y-0.5 font-mono text-xs">
+        <p className="break-all text-ink-faint line-through">{project.path}</p>
+        <p className="break-all text-ink">{parent}{trimmed || current}</p>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+          <IconAlert width={14} height={14} /> Before you do this
+        </p>
+        <ul className="mt-1.5 space-y-1 text-xs text-ink-soft">
+          <li>· Anything pointing at the old absolute path needs updating yourself — IDE
+            workspaces and recent-folder lists, open terminal tabs, scheduled tasks, shortcuts,
+            and any script with the path hard-coded.</li>
+          <li>· Git is unaffected. Remotes, history and branches live inside the folder and move
+            with it.</li>
+          <li>· Close your editor, terminals and any dev server running in this folder first —
+            Windows refuses to rename a folder that something has open.</li>
+        </ul>
+      </div>
+
+      {!project.pathExists && (
+        <p className="mt-3 text-sm text-rose-600">
+          The folder is missing, so there is nothing to rename. Re-point the project first.
+        </p>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={!canRename || busy} onClick={rename}>
+          Rename folder on disk
+        </Button>
+      </div>
+    </Modal>
   )
 }
 

@@ -1,6 +1,7 @@
 import type { Project } from '../../../shared/types'
 import { ACTIVITY_META } from '../format'
 import { Button } from './ui'
+import { Logo } from './Logo'
 import { IconGitCommit, IconGrid, IconInbox, IconPlus, IconRefresh, IconSearch, IconSettings, IconStar } from './icons'
 
 type View = 'dashboard' | 'inbox' | 'activity' | 'settings'
@@ -75,11 +76,8 @@ export function Sidebar({
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-      <div className="flex items-center gap-2 px-4 py-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">
-          L
-        </div>
-        <span className="text-[15px] font-semibold text-ink">Launchpad</span>
+      <div className="flex items-center px-4 py-4">
+        <Logo size={28} />
       </div>
 
       <div className="px-2 pb-1">

@@ -42,6 +42,38 @@ Plain status tracker (readable markdown — this is not machine-parsed).
   (add/get/update/archive/unarchive/tag/untag/tags + done/reopen/move/promote/pin/unpin),
   `inbox`, `push`. `--json` on reads; `--by` for actor attribution.
 
+## Done (v0.3 — identity, capture UX, folder handling, live sites)
+
+- **Logo** — a delta lifting off a split pad, drawn once in a 32×32 box and mirrored in three
+  places: `src/web/src/components/Logo.tsx` (sidebar), `src/web/public/favicon.svg`, and
+  `scripts/make-icon.mjs` (which rasterises tray 32px, window/taskbar 256px, PWA 192/512 with
+  4× supersampled anti-aliasing, pure Node + zlib, no image deps). **Change all three together.**
+  Electron now sets `icon:` on the BrowserWindow and an explicit `AppUserModelId`, so Windows
+  stops showing the default Electron logo in the window and taskbar.
+- **Capture bar reads as global** — moved onto `surface-2` with a "Quick capture" chip and a
+  permanent `Global · goes to <destination> as <kind>` meta row, so it no longer looks like it
+  belongs to the open project. Both selectors are reachable at every width.
+- **Capture autocomplete** — a suggestion dropdown for the `task:` / `idea:` / `note:` prefixes
+  and for `#project` targets, filtered by the same predicate `parseCapture` uses, with
+  arrow/Enter/Tab/Esc handling and a live preview of the parsed result. A `#tag` in the text now
+  beats the pre-selected project (it used to be silently ignored whenever a project was open).
+- **Native folder picker** — `POST /api/pick-folder` opens a WinForms `FolderBrowserDialog` via
+  `powershell -STA -EncodedCommand`, owned by a hidden top-most form so it lands in front.
+  Cancel/timeout/non-Windows all return `null`. Used by Settings (project roots) and the
+  new-project modal, replacing hand-typed paths.
+- **Scan reports itself** — `POST /api/scan` returns a `DiscoveryResult` with a per-root
+  breakdown and a human `message`, so a scan that finds nothing says *why*.
+- **Duplicate detection** — beyond nested paths, now also same-path-different-case, stale
+  non-existent paths sharing a basename with a live one, and near-identical names.
+- **Live deployments** — optional Vercel personal access token in Settings; projects match to a
+  Vercel project by git remote (then by name), storing `liveUrl`. A globe button opens the live
+  site next to Editor/Terminal/Folder/GitHub, and a `live` badge shows on the dashboard card.
+  A hand-entered URL is respected and never overwritten by detection.
+- **Moved / renamed folders** — `pathExists` on every project surfaces a "folder missing" badge
+  and an in-project banner; `/relocate/candidates` finds the folder again (git remote > basename
+  > name similarity); `/relocate` re-points it; `/rename-folder` renames on disk and updates the
+  stored path in one operation. See WORKING_NOTES for the policy.
+
 ## Planned / not yet
 
 - Global hotkey for capture (currently in-app capture bar only).

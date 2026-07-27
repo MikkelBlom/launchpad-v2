@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import {
   createProject,
   deleteProject,
@@ -12,11 +12,25 @@ import {
 } from '../repo/projects.ts'
 import { scanProject } from '../services/scanner.ts'
 import { buildExport, renderExportMarkdown, writeExportToProject } from '../services/exporter.ts'
-import { openInEditor } from '../services/launcher.ts'
+import { openInEditor, openUrl } from '../services/launcher.ts'
 import { provenanceFrom } from '../services/provenance.ts'
 import { recordChange } from '../repo/changes.ts'
+import {
+  findRelocateCandidates,
+  RelocateError,
+  relocateProject,
+  renameProjectFolder
+} from '../services/relocate.ts'
+import { normalizeLiveUrl } from '../services/vercel.ts'
 import { normalizePath } from '../config.ts'
 import type { ProjectStatus } from '../../shared/types.ts'
+
+// Relocating touches the filesystem, so its failures are expected outcomes with messages
+// worth showing the user verbatim rather than 500s.
+function failRelocate(reply: FastifyReply, error: unknown): FastifyReply {
+  if (error instanceof RelocateError) return reply.code(error.status).send({ error: error.message })
+  return reply.code(500).send({ error: String(error instanceof Error ? error.message : error) })
+}
 
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/projects', async () => listProjects())
@@ -105,6 +119,73 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     openInEditor(project.path)
     touchOpened(id)
     return { ok: true }
+  })
+
+  // Open the project's live deployment in the default browser.
+  app.post('/projects/:id/open-live', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const project = getProject(id)
+    if (!project) return reply.code(404).send({ error: 'Project not found' })
+    const url = normalizeLiveUrl(project.liveUrl)
+    if (!url) {
+      return reply.code(400).send({ error: 'No usable live URL is set for this project' })
+    }
+    openUrl(url)
+    touchOpened(id)
+    return { ok: true }
+  })
+
+  // ---- Moved / renamed folders ----
+  // The display name and the folder on disk are separate: renaming a project in Launchpad
+  // never touches the filesystem. These three endpoints cover the other direction.
+
+  // "Where did it go?" — folders under the configured roots that look like this project.
+  app.get('/projects/:id/relocate/candidates', async (req, reply) => {
+    try {
+      return await findRelocateCandidates(Number((req.params as { id: string }).id))
+    } catch (error) {
+      return failRelocate(reply, error)
+    }
+  })
+
+  // "I moved it myself, here's where it is now."
+  app.post('/projects/:id/relocate', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const path = (req.body as { path?: string } | undefined)?.path ?? ''
+    try {
+      const project = await relocateProject(id, path)
+      recordChange({
+        provenance: provenanceFrom(req),
+        projectId: id,
+        entityType: 'project',
+        entityId: id,
+        action: 'updated',
+        summary: `relocated to ${project.path}`
+      })
+      return project
+    } catch (error) {
+      return failRelocate(reply, error)
+    }
+  })
+
+  // Rename the folder on disk and the stored path in one operation, so they cannot drift.
+  app.post('/projects/:id/rename-folder', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const folderName = (req.body as { folderName?: string } | undefined)?.folderName ?? ''
+    try {
+      const project = await renameProjectFolder(id, folderName)
+      recordChange({
+        provenance: provenanceFrom(req),
+        projectId: id,
+        entityType: 'project',
+        entityId: id,
+        action: 'updated',
+        summary: `renamed folder on disk to ${project.path}`
+      })
+      return project
+    } catch (error) {
+      return failRelocate(reply, error)
+    }
   })
 
   // JSON export consumed by the CLI / agents.

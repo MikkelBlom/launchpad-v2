@@ -53,10 +53,35 @@ are intentionally avoided).
 
 ## First-time setup
 
-1. Open Launchpad → **Settings** → add a **project root** (e.g. `C:\Users\you\Projects`).
-2. Click **Scan now**. Launchpad discovers every project under that root (2 levels deep)
-   and reads its git status.
+1. Open Launchpad → **Settings** → **Browse…** and pick a **project root**
+   (e.g. `C:\Users\you\Projects`). A native folder chooser opens on the machine running the
+   service, so there is no path to type — typing one still works if you prefer.
+2. Click **Scan now**. Launchpad discovers every project under that root and reads its git
+   status, then reports what it found per root — including roots that don't exist and projects
+   that were already registered, so a scan that adds nothing tells you why.
 3. Back on **Projects**, click any card to launch it, add tasks/ideas/notes, or edit it.
+
+If import or repeated scans left the same project registered twice, **Settings → Duplicates**
+finds them — nested paths, stale paths that no longer exist, and near-identical names — and
+merges them into the registration whose folder actually exists.
+
+## Renaming projects
+
+The **display name and the folder on disk are independent.** Renaming a project in Launchpad
+never touches the filesystem, so rename freely — nothing that points at the folder breaks.
+
+If you do want the folder itself renamed, do it from the project's page: Launchpad renames the
+directory and updates its stored path in one operation so the two can't drift. And if you rename
+or move a folder outside Launchpad, the project shows **folder missing** and offers to find it
+again by searching your project roots (matching on git remote first, then folder name).
+
+## Live sites (Vercel)
+
+Add a Vercel personal access token in **Settings** and Launchpad can match each project to its
+Vercel deployment — by git remote first, then by name — and show a button that opens the live
+site next to Editor / Terminal / Folder / GitHub. You can also paste a URL by hand for anything
+not hosted on Vercel; a manual URL is never overwritten by detection. With no token configured,
+everything else works exactly as before.
 
 ## The agent CLI — `launchpad`
 

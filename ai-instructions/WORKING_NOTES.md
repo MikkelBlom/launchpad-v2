@@ -69,6 +69,31 @@ Adding `source`/`actor` to every request body would touch every endpoint's schem
 body the domain payload. The CLI infers `agent` vs `cli` from whether stdout is a TTY (agents
 run piped, humans run interactive) — overridable with `--source` / `--by`.
 
+## Renaming projects: display name and folder are deliberately separate
+Mikkel's worry: "in the beginning I might call it some name, then I come up with a name and
+want to rename it — in Launchpad easy, but the folder, if things are pointing to that path..."
+
+The policy, in order of preference:
+
+1. **Rename in Launchpad, leave the folder alone.** `projects.name` and `projects.path` are
+   independent columns and renaming in the UI has never touched disk. This is the default
+   answer and it is free — the dashboard, search, tags and agent bindings all key off `name`,
+   while everything that points at the folder keeps working. A folder called `new-project-3`
+   showing as "Solely" in Launchpad is completely fine.
+2. **If the folder must be renamed, do it from Launchpad** (`POST /projects/:id/rename-folder`),
+   which renames on disk and updates `path` in the same operation so the two cannot drift.
+   It refuses when the target exists, when the name has separators or invalid Windows
+   characters, and reports the "file in use" case explicitly — on Windows an open editor or a
+   running dev server will lock the directory.
+3. **If it was already renamed outside Launchpad**, `project.pathExists` goes false, the UI
+   says so, and `/projects/:id/relocate/candidates` searches the project roots for the folder —
+   scoring a matching git remote highest, then basename, then name similarity — so re-pointing
+   is one click rather than retyping a path.
+
+What Launchpad deliberately does **not** do: follow moves automatically. Silently re-pointing a
+project at a folder that merely looks similar is how you end up with notes attached to the wrong
+repo. Detection proposes; the user confirms.
+
 ## Open questions / watch-outs
 - Electron GUI hasn't been launched in an automated environment (it's a desktop app); the
   load target (built UI on :7420) and the shell's syntax are verified. Worth a manual run.

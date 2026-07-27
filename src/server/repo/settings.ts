@@ -9,7 +9,9 @@ const DEFAULTS: AppSettings = {
   scanDepth: 2,
   excludeDirs: [],
   defaultSort: 'activity',
-  groupByStatus: false
+  groupByStatus: false,
+  vercelToken: '',
+  vercelTeamId: ''
 }
 
 function readRaw(key: string): string | undefined {

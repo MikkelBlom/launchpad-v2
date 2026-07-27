@@ -14,6 +14,7 @@ import { scaffoldRoutes } from './routes/scaffold.ts'
 import { tagRoutes } from './routes/tags.ts'
 import { insightRoutes } from './routes/insights.ts'
 import { agentRoutes } from './routes/agent.ts'
+import { vercelRoutes } from './routes/vercel.ts'
 
 export async function createServer(): Promise<FastifyInstance> {
   getDb() // open connection + run migrations up front
@@ -46,6 +47,7 @@ export async function createServer(): Promise<FastifyInstance> {
       await tagRoutes(api)
       await insightRoutes(api)
       await agentRoutes(api)
+      await vercelRoutes(api)
     },
     { prefix: '/api' }
   )

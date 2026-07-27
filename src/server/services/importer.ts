@@ -1,12 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { normalizePath } from '../config.ts'
-import { createProject, getProjectByPath } from '../repo/projects.ts'
+import { createProject, listProjects, updateProject } from '../repo/projects.ts'
 import { getSettings } from '../repo/settings.ts'
 import { scanProject } from './scanner.ts'
 import { seedDefaultLaunchProfiles } from './launcher.ts'
-import type { ProjectStatus } from '../../shared/types.ts'
+import type { Project, ProjectStatus } from '../../shared/types.ts'
 
 interface OldProject {
   name: string
@@ -119,6 +119,49 @@ function resolvePath(oldPath: string, name: string, searchBases: string[]): stri
   return null
 }
 
+function pathKey(p: string): string {
+  return p.replace(/[\\/]+/g, '\\').replace(/\\+$/, '').toLowerCase()
+}
+
+// What already lives in Launchpad, indexed the two ways an import has to match:
+// by normalized path (case-folded — Windows paths differ in casing all the time) and by
+// folder name. The folder name is what survives the user renaming a project inside
+// Launchpad, so it's the key that stops a second import from cloning a renamed project.
+class Registry {
+  private byPath = new Map<string, Project>()
+  private byFolder = new Map<string, Project[]>()
+
+  constructor() {
+    for (const project of listProjects()) this.add(project)
+  }
+
+  add(project: Project): void {
+    this.byPath.set(pathKey(project.path), project)
+    const folder = basename(project.path).toLowerCase()
+    this.byFolder.set(folder, [...(this.byFolder.get(folder) ?? []), project])
+  }
+
+  // Follow a registration that this import just moved, so a later entry for the same
+  // folder matches it in place instead of relocating it twice.
+  repoint(project: Project, newPath: string): void {
+    this.byPath.delete(pathKey(project.path))
+    project.path = newPath
+    this.byPath.set(pathKey(newPath), project)
+  }
+
+  // A folder that is really on disk always beats a stale registration for the same name.
+  match(resolvedPath: string | null, oldPath: string): Project | null {
+    if (resolvedPath) {
+      const exact = this.byPath.get(pathKey(resolvedPath))
+      if (exact) return exact
+    }
+    const folder = basename(resolvedPath ?? oldPath).toLowerCase()
+    const candidates = this.byFolder.get(folder) ?? []
+    if (candidates.length === 0) return null
+    return candidates.find((p) => existsSync(p.path)) ?? candidates[0]
+  }
+}
+
 export async function importOldLaunchpad(explicitRegistryPath?: string): Promise<ImportResult> {
   const { projects, source } = locateOldRegistry(explicitRegistryPath)
 
@@ -134,19 +177,37 @@ export async function importOldLaunchpad(explicitRegistryPath?: string): Promise
     notFound: []
   }
 
+  const registry = new Registry()
+
   for (const old of projects) {
     if (!old?.name || !old?.path) continue
 
     const existedAtOldPath = existsSync(old.path)
     const resolved = resolvePath(old.path, old.name, searchBases)
 
-    if (!resolved) {
-      result.notFound.push({ name: old.name, path: old.path })
+    // Match before creating, so a re-run can't clone a project the user has since renamed.
+    const existing = registry.match(resolved, old.path)
+    if (existing) {
+      if (resolved && pathKey(existing.path) !== pathKey(resolved) && !existsSync(existing.path)) {
+        // Same project, but Launchpad is pointing at a folder that no longer exists —
+        // repoint the registration instead of adding a second copy of it.
+        updateProject(existing.id, { path: resolved })
+        result.relocated.push({ name: existing.name, from: existing.path, to: resolved })
+        registry.repoint(existing, resolved)
+      } else {
+        result.skipped.push({
+          name: old.name,
+          reason:
+            existing.name.toLowerCase() === old.name.toLowerCase()
+              ? 'already registered'
+              : `already registered as "${existing.name}"`
+        })
+      }
       continue
     }
 
-    if (getProjectByPath(resolved)) {
-      result.skipped.push({ name: old.name, reason: 'already registered' })
+    if (!resolved) {
+      result.notFound.push({ name: old.name, path: old.path })
       continue
     }
 
@@ -158,6 +219,7 @@ export async function importOldLaunchpad(explicitRegistryPath?: string): Promise
     })
     await scanProject(created.id, resolved, created.description)
     seedDefaultLaunchProfiles(created.id)
+    registry.add(created)
 
     if (existedAtOldPath) {
       result.imported.push({ name: old.name, path: resolved })

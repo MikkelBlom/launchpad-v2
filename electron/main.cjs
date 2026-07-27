@@ -54,6 +54,8 @@ async function ensureServer() {
   await waitForServer()
 }
 
+const APP_ICON = join(APP_ROOT, 'resources', 'icon.png')
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1180,
@@ -61,6 +63,8 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Launchpad',
+    // Without this the window and taskbar show Electron's default logo.
+    icon: APP_ICON,
     backgroundColor: '#faf9f7',
     webPreferences: { preload: join(__dirname, 'preload.cjs') }
   })
@@ -117,6 +121,11 @@ function createTray() {
 }
 
 app.whenReady().then(async () => {
+  // Windows groups taskbar entries and picks the icon by AppUserModelID; without an
+  // explicit one, an unpackaged Electron app is shown as "Electron".
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('dk.mikkelblom.launchpad')
+  }
   // Launch at login by default (the user asked for startup launch).
   if (!app.getLoginItemSettings().openAtLogin) {
     app.setLoginItemSettings({ openAtLogin: true })

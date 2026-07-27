@@ -62,6 +62,11 @@ export interface Project {
   createdAt: string
   counts: ProjectCounts
   tags: Tag[]
+  // Live deployment, either detected from Vercel or entered by hand.
+  liveUrl: string | null
+  vercelProjectId: string | null
+  // False when the folder has been moved, renamed, or deleted on disk.
+  pathExists: boolean
 }
 
 export interface Note {
@@ -139,6 +144,35 @@ export interface AppSettings {
   excludeDirs: string[]
   defaultSort: string
   groupByStatus: boolean
+  // Vercel personal access token, used to match projects to their live deployments.
+  vercelToken: string
+  vercelTeamId: string
+}
+
+export interface VercelProject {
+  id: string
+  name: string
+  url: string | null
+  framework: string | null
+  gitRepo: string | null
+  updatedAt: string | null
+}
+
+// Result of a discovery scan — reports why nothing was found, not just that nothing was.
+export interface DiscoveryResult {
+  added: string[]
+  scanned: number
+  roots: Array<{ path: string; exists: boolean; candidates: number; added: number }>
+  skippedExisting: number
+  message: string
+}
+
+// A folder on disk that probably corresponds to a project whose path went missing.
+export interface RelocateCandidate {
+  path: string
+  name: string
+  score: number
+  reason: string
 }
 
 export interface ApiError {
@@ -181,9 +215,11 @@ export interface SearchHit {
   snippet: string
 }
 
+// Registrations that look like the same project. `nested` is historical — the group is no
+// longer only about nested folders — so each entry carries why it was grouped.
 export interface DuplicateGroup {
   keeper: { id: number; name: string; path: string }
-  nested: Array<{ id: number; name: string; path: string }>
+  nested: Array<{ id: number; name: string; path: string; reason: string }>
 }
 
 // Payload returned to an AI agent pulling a project's data into its repo. Item ids are

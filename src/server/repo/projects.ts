@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { fromBool, getDb, nowIso, toBool } from '../db/database.ts'
 import { tagsByProject, tagsForProject } from './tags.ts'
 import type { GitActivity, GitInfo, Project, ProjectStatus, Tag } from '../../shared/types.ts'
@@ -23,6 +24,8 @@ interface ProjectRow {
   last_scanned_at: string | null
   last_opened_at: string | null
   created_at: string
+  live_url: string | null
+  vercel_project_id: string | null
   note_count: number
   idea_count: number
   open_task_count: number
@@ -81,7 +84,10 @@ function mapRow(row: ProjectRow, tags: Tag[] = []): Project {
       ideas: row.idea_count,
       openTasks: row.open_task_count
     },
-    tags
+    tags,
+    liveUrl: row.live_url,
+    vercelProjectId: row.vercel_project_id,
+    pathExists: existsSync(row.path)
   }
 }
 
@@ -143,6 +149,9 @@ export interface UpdateProjectInput {
   status?: ProjectStatus
   isFavorite?: boolean
   color?: string | null
+  path?: string
+  liveUrl?: string | null
+  vercelProjectId?: string | null
 }
 
 export function updateProject(id: number, patch: UpdateProjectInput): Project | null {
@@ -167,6 +176,18 @@ export function updateProject(id: number, patch: UpdateProjectInput): Project | 
   if (patch.color !== undefined) {
     fields.push('color = ?')
     values.push(patch.color)
+  }
+  if (patch.path !== undefined) {
+    fields.push('path = ?')
+    values.push(patch.path)
+  }
+  if (patch.liveUrl !== undefined) {
+    fields.push('live_url = ?')
+    values.push(patch.liveUrl)
+  }
+  if (patch.vercelProjectId !== undefined) {
+    fields.push('vercel_project_id = ?')
+    values.push(patch.vercelProjectId)
   }
   if (fields.length > 0) {
     values.push(id)

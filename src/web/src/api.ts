@@ -5,6 +5,7 @@ import type {
   CaptureKind,
   ChangeEntry,
   DashboardStats,
+  DiscoveryResult,
   DuplicateGroup,
   GitCommit,
   Idea,
@@ -17,9 +18,11 @@ import type {
   ProjectStatus,
   PushPlan,
   PushResult,
+  RelocateCandidate,
   SearchHit,
   Tag,
-  Task
+  Task,
+  VercelProject
 } from '../../shared/types'
 
 const SEGMENT: Record<ItemType, string> = { task: 'tasks', idea: 'ideas', note: 'notes' }
@@ -80,7 +83,31 @@ export const api = {
     req<{ ok: true }>(`/projects/${id}/open-github`, { method: 'POST' }),
 
   // Scan / settings
-  scan: () => req<{ added: string[]; scanned: number }>('/scan', { method: 'POST' }),
+  scan: () => req<DiscoveryResult>('/scan', { method: 'POST' }),
+
+  // Opens a native folder-picker on the machine running the service.
+  pickFolder: (title?: string) =>
+    req<{ path: string | null }>('/pick-folder', { method: 'POST', ...body({ title: title ?? '' }) }),
+
+  // Live deployments (Vercel)
+  vercelProjects: () => req<VercelProject[]>('/vercel/projects'),
+  vercelDetect: (id: number) =>
+    req<{ matched: VercelProject | null; project: Project }>(`/projects/${id}/vercel/detect`, {
+      method: 'POST'
+    }),
+  vercelLink: (id: number, vercelProjectId: string | null) =>
+    req<Project>(`/projects/${id}/vercel/link`, { method: 'POST', ...body({ vercelProjectId }) }),
+  setLiveUrl: (id: number, liveUrl: string | null) =>
+    req<Project>(`/projects/${id}`, { method: 'PATCH', ...body({ liveUrl }) }),
+  openLive: (id: number) => req<{ ok: true }>(`/projects/${id}/open-live`, { method: 'POST' }),
+
+  // Moved / renamed folders
+  relocateCandidates: (id: number) =>
+    req<RelocateCandidate[]>(`/projects/${id}/relocate/candidates`),
+  relocateProject: (id: number, path: string) =>
+    req<Project>(`/projects/${id}/relocate`, { method: 'POST', ...body({ path }) }),
+  renameFolder: (id: number, folderName: string) =>
+    req<Project>(`/projects/${id}/rename-folder`, { method: 'POST', ...body({ folderName }) }),
   importOld: () =>
     req<ImportResult>('/import/old-launchpad', { method: 'POST' }),
   getSettings: () => req<AppSettings>('/settings'),
@@ -212,8 +239,13 @@ export const api = {
   commits: (projectId: number) => req<GitCommit[]>(`/projects/${projectId}/commits`),
   readme: (projectId: number) => req<{ content: string }>(`/projects/${projectId}/readme`),
   duplicates: () => req<DuplicateGroup[]>('/duplicates'),
-  merge: (keeperId: number, nestedIds: number[]) =>
-    req<{ merged: number }>('/merge', { method: 'POST', ...body({ keeperId, nestedIds }) }),
+  // `keeperId` can differ from the one requested: if the requested keeper's folder is gone,
+  // the merge survives onto a registration whose path actually exists.
+  merge: (keeperId: number, mergeIds: number[]) =>
+    req<{ merged: number; keeperId: number }>('/merge', {
+      method: 'POST',
+      ...body({ keeperId, mergeIds })
+    }),
 
   // Project actions
   openTerminal: (id: number) =>

@@ -39,6 +39,20 @@ export const PRIORITY_CLS: Record<string, string> = {
   low: 'bg-stone-100 text-stone-600'
 }
 
+export function dueMeta(dueDate: string | null): { label: string; cls: string } | null {
+  if (!dueDate) return null
+  const due = new Date(`${dueDate}T00:00:00`)
+  if (!Number.isFinite(due.getTime())) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000))
+  if (days < 0) return { label: `${-days}d overdue`, cls: 'bg-rose-100 text-rose-700' }
+  if (days === 0) return { label: 'Due today', cls: 'bg-amber-100 text-amber-700' }
+  if (days === 1) return { label: 'Due tomorrow', cls: 'bg-amber-100 text-amber-700' }
+  if (days <= 7) return { label: `Due in ${days}d`, cls: 'bg-surface-2 text-ink-soft' }
+  return { label: due.toLocaleDateString(), cls: 'bg-surface-2 text-ink-faint' }
+}
+
 export const STACK_EMOJI: Record<string, string> = {
   node: '🟢',
   python: '🐍',

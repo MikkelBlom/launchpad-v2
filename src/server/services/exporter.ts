@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { getProject } from '../repo/projects.ts'
 import { listNotes } from '../repo/notes.ts'
 import { listIdeas } from '../repo/ideas.ts'
@@ -93,4 +95,16 @@ export function renderExportMarkdown(data: ProjectExport): string {
 
   lines.push('')
   return lines.join('\n')
+}
+
+// Write the snapshot into the project's ai-instructions/LAUNCHPAD.md (same as `launchpad pull`).
+export function writeExportToProject(projectId: number): { path: string } | null {
+  const data = buildExport(projectId)
+  const project = getProject(projectId)
+  if (!data || !project) return null
+  const dir = join(project.path, 'ai-instructions')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  const filePath = join(dir, 'LAUNCHPAD.md')
+  writeFileSync(filePath, renderExportMarkdown(data), 'utf-8')
+  return { path: filePath }
 }

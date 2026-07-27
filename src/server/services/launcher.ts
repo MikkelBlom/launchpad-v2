@@ -23,6 +23,12 @@ export function openFolder(path: string): void {
   runShell(`start "" "${path}"`)
 }
 
+// Open a terminal already cd'd into the folder (Windows Terminal if present, else cmd).
+export function openTerminal(path: string): void {
+  const child = spawn(`start "Terminal" cmd`, { cwd: path, shell: true, detached: true, stdio: 'ignore' })
+  child.unref()
+}
+
 export function openInEditor(path: string): void {
   const editor = getSettings().defaultEditor || 'code'
   runShell(`${editor} "${path}"`, path)

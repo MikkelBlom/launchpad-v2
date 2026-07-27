@@ -1,5 +1,29 @@
 # Sessions — Launchpad v2
 
+## 2026-07-07 — Big feature batch (35 items across dashboard, projects, tasks, capture, CLI)
+
+**Agent:** Claude Code (Opus 4.8), autonomous session (no new dependencies allowed).
+
+Implemented ~35 features (see ROADMAP.md). Highlights:
+- **Data layer:** migration v2 (task `due_date`, `tags` + `project_tags`). Repos: tags, task
+  reorder/due dates. Services: insights (stats/activity/search), git history, JSON backup/restore,
+  duplicate detection + merge. Settings gained scan depth, exclude dirs, default sort/group.
+- **API:** tags CRUD + project assignment, `/stats`, `/activity`, `/search`, `/projects/:id/commits`,
+  `/projects/:id/readme`, `/export-file`, `/open-terminal`, `/duplicates`, `/merge`, `/backup`,
+  `/restore`, `/data-dir`, `/open-data-folder`, `/projects/bulk[-delete]`, `/tasks/:id/move`.
+  Also fixed empty-JSON-body handling (belt-and-suspenders with the client).
+- **UI:** command palette (Ctrl-K) + global shortcuts (n, g d/i/a/s, /, esc); dashboard stats header,
+  needs-attention, sort/group, tag filter, bulk select; Activity view; project detail gained tags,
+  rename, delete-confirm, export, terminal, git-history + README tabs; tasks got due dates, a board
+  view, reorder, and filters; ideas convert-to-note + filter; notes pin + search; smart capture
+  parsing (#project, task:/idea:/note:, URLs) + kind selector; inbox bulk; responsive mobile layout
+  + hamburger drawer; PWA manifest + icons + favicon.
+- **CLI:** added `list`, `open`, `note "…"` commands.
+
+**Verified:** full `tsc --noEmit` passes; `vite build` + esbuild server build succeed; icons generate.
+Runtime endpoint/UI verification was interrupted by a tooling (shell) outage — migration is atomic
+(BEGIN/COMMIT, rolls back to v1 on any failure, so no corruption risk) and typecheck/build are green.
+
 ## 2026-07-07 — Bug fixes (scan/add), old-project import, durability
 
 **Agent:** Claude Code (Opus 4.8)

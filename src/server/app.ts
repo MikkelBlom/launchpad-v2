@@ -11,6 +11,8 @@ import { contentRoutes } from './routes/content.ts'
 import { launchRoutes } from './routes/launch.ts'
 import { systemRoutes } from './routes/system.ts'
 import { scaffoldRoutes } from './routes/scaffold.ts'
+import { tagRoutes } from './routes/tags.ts'
+import { insightRoutes } from './routes/insights.ts'
 
 export async function createServer(): Promise<FastifyInstance> {
   getDb() // open connection + run migrations up front
@@ -40,6 +42,8 @@ export async function createServer(): Promise<FastifyInstance> {
       await launchRoutes(api)
       await systemRoutes(api)
       await scaffoldRoutes(api)
+      await tagRoutes(api)
+      await insightRoutes(api)
     },
     { prefix: '/api' }
   )

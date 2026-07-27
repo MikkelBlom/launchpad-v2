@@ -5,7 +5,11 @@ const DEFAULTS: AppSettings = {
   projectRoots: [],
   defaultEditor: 'code',
   githubUser: '',
-  scanOnStartup: true
+  scanOnStartup: true,
+  scanDepth: 2,
+  excludeDirs: [],
+  defaultSort: 'activity',
+  groupByStatus: false
 }
 
 function readRaw(key: string): string | undefined {

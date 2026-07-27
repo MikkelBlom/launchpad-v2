@@ -29,6 +29,12 @@ export interface ProjectCounts {
   openTasks: number
 }
 
+export interface Tag {
+  id: number
+  name: string
+  color: string
+}
+
 export interface Project {
   id: number
   name: string
@@ -44,6 +50,7 @@ export interface Project {
   lastOpenedAt: string | null
   createdAt: string
   counts: ProjectCounts
+  tags: Tag[]
 }
 
 export interface Note {
@@ -74,6 +81,7 @@ export interface Task {
   status: TaskStatus
   priority: Priority
   sort: number
+  dueDate: string | null
   createdAt: string
   updatedAt: string
   doneAt: string | null
@@ -104,10 +112,55 @@ export interface AppSettings {
   defaultEditor: string
   githubUser: string
   scanOnStartup: boolean
+  scanDepth: number
+  excludeDirs: string[]
+  defaultSort: string
+  groupByStatus: boolean
 }
 
 export interface ApiError {
   error: string
+}
+
+export interface GitCommit {
+  hash: string
+  date: string
+  message: string
+  author: string
+}
+
+export interface DashboardStats {
+  total: number
+  active: number
+  dirty: number
+  stalledActive: number
+  openTasks: number
+  byActivity: Record<GitActivity, number>
+  byStatus: Record<ProjectStatus, number>
+}
+
+export type ActivityKind = 'commit' | 'task' | 'idea' | 'note'
+
+export interface ActivityItem {
+  kind: ActivityKind
+  projectId: number
+  projectName: string
+  text: string
+  at: string
+}
+
+export interface SearchHit {
+  type: 'project' | 'task' | 'idea' | 'note'
+  projectId: number
+  projectName: string
+  id: number
+  title: string
+  snippet: string
+}
+
+export interface DuplicateGroup {
+  keeper: { id: number; name: string; path: string }
+  nested: Array<{ id: number; name: string; path: string }>
 }
 
 // Payload returned to an AI agent pulling a project's data into its repo.

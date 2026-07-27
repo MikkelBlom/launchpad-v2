@@ -94,6 +94,27 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       CREATE INDEX idx_captures_project ON captures(project_id);
       CREATE INDEX idx_launch_project ON launch_profiles(project_id);
     `)
+  },
+  // v2 — task due dates + tags
+  (db) => {
+    db.exec(`
+      ALTER TABLE tasks ADD COLUMN due_date TEXT;
+
+      CREATE TABLE tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        color TEXT NOT NULL DEFAULT '#78716c'
+      );
+
+      CREATE TABLE project_tags (
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (project_id, tag_id)
+      );
+
+      CREATE INDEX idx_project_tags_project ON project_tags(project_id);
+      CREATE INDEX idx_project_tags_tag ON project_tags(tag_id);
+    `)
   }
 ]
 

@@ -8,6 +8,7 @@ interface TaskRow {
   status: string
   priority: string
   sort: number
+  due_date: string | null
   created_at: string
   updated_at: string
   done_at: string | null
@@ -21,6 +22,7 @@ function mapRow(row: TaskRow): Task {
     status: row.status as TaskStatus,
     priority: row.priority as Priority,
     sort: row.sort,
+    dueDate: row.due_date,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     doneAt: row.done_at
@@ -59,6 +61,7 @@ export interface UpdateTaskInput {
   status?: TaskStatus
   priority?: Priority
   sort?: number
+  dueDate?: string | null
 }
 
 export function updateTask(id: number, patch: UpdateTaskInput): Task | null {
@@ -76,6 +79,10 @@ export function updateTask(id: number, patch: UpdateTaskInput): Task | null {
     fields.push('sort = ?')
     values.push(patch.sort)
   }
+  if (patch.dueDate !== undefined) {
+    fields.push('due_date = ?')
+    values.push(patch.dueDate)
+  }
   if (patch.status !== undefined) {
     fields.push('status = ?')
     values.push(patch.status)
@@ -90,6 +97,22 @@ export function updateTask(id: number, patch: UpdateTaskInput): Task | null {
     .run(...(values as never[]))
   const row = getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as unknown as TaskRow | undefined
   return row ? mapRow(row) : null
+}
+
+// Swap sort order with the adjacent task in the project's ordered list.
+export function moveTask(id: number, direction: 'up' | 'down'): void {
+  const task = getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as unknown as TaskRow | undefined
+  if (!task) return
+  const neighbor = getDb()
+    .prepare(
+      direction === 'up'
+        ? 'SELECT * FROM tasks WHERE project_id = ? AND sort < ? ORDER BY sort DESC LIMIT 1'
+        : 'SELECT * FROM tasks WHERE project_id = ? AND sort > ? ORDER BY sort ASC LIMIT 1'
+    )
+    .get(task.project_id, task.sort) as unknown as TaskRow | undefined
+  if (!neighbor) return
+  getDb().prepare('UPDATE tasks SET sort = ? WHERE id = ?').run(neighbor.sort, task.id)
+  getDb().prepare('UPDATE tasks SET sort = ? WHERE id = ?').run(task.sort, neighbor.id)
 }
 
 export function deleteTask(id: number): void {

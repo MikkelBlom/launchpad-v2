@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import {
   createProject,
@@ -10,12 +11,30 @@ import {
   updateProject
 } from '../repo/projects.ts'
 import { scanProject } from '../services/scanner.ts'
-import { buildExport, renderExportMarkdown } from '../services/exporter.ts'
+import { buildExport, renderExportMarkdown, writeExportToProject } from '../services/exporter.ts'
 import { openInEditor } from '../services/launcher.ts'
 import { normalizePath } from '../config.ts'
+import type { ProjectStatus } from '../../shared/types.ts'
 
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/projects', async () => listProjects())
+
+  // Bulk operations over many projects at once (archive/status/favorite, or delete).
+  app.post('/projects/bulk', async (req) => {
+    const body = req.body as {
+      ids?: number[]
+      patch?: { status?: ProjectStatus; isFavorite?: boolean }
+    }
+    const ids = body.ids ?? []
+    for (const id of ids) updateProject(id, body.patch ?? {})
+    return { ok: true, count: ids.length }
+  })
+
+  app.post('/projects/bulk-delete', async (req) => {
+    const ids = (req.body as { ids?: number[] }).ids ?? []
+    for (const id of ids) deleteProject(id)
+    return { ok: true, count: ids.length }
+  })
 
   // Resolve a project by its filesystem path — used by the CLI to identify "this" project.
   app.get('/projects/resolve', async (req, reply) => {
@@ -91,5 +110,24 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     if (!data) return reply.code(404).send({ error: 'Project not found' })
     reply.type('text/markdown; charset=utf-8')
     return renderExportMarkdown(data)
+  })
+
+  app.get('/projects/:id/readme', async (req, reply) => {
+    const project = getProject(Number((req.params as { id: string }).id))
+    if (!project) return reply.code(404).send({ error: 'Project not found' })
+    try {
+      const name = readdirSync(project.path).find((n) => n.toLowerCase() === 'readme.md')
+      if (!name) return { content: '' }
+      return { content: readFileSync(join(project.path, name), 'utf-8') }
+    } catch {
+      return { content: '' }
+    }
+  })
+
+  // Write the snapshot into the project's ai-instructions/LAUNCHPAD.md (UI "Export" button).
+  app.post('/projects/:id/export-file', async (req, reply) => {
+    const result = writeExportToProject(Number((req.params as { id: string }).id))
+    if (!result) return reply.code(404).send({ error: 'Project not found' })
+    return result
   })
 }

@@ -20,6 +20,60 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Markdown preview (README tab) */
+.lp-markdown .lp-h {
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  line-height: 1.25;
+}
+.lp-markdown h1.lp-h {
+  font-size: 1.35rem;
+}
+.lp-markdown h2.lp-h {
+  font-size: 1.15rem;
+}
+.lp-markdown h3.lp-h {
+  font-size: 1rem;
+}
+.lp-markdown p {
+  margin: 0.5em 0;
+  line-height: 1.6;
+}
+.lp-markdown a {
+  color: theme('colors.brand.DEFAULT');
+  text-decoration: underline;
+}
+.lp-markdown .lp-ul {
+  margin: 0.4em 0;
+  padding-left: 1.3em;
+  list-style: disc;
+}
+.lp-markdown .lp-code {
+  background: theme('colors.surface.2');
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+.lp-markdown .lp-pre {
+  background: theme('colors.surface.2');
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.lp-markdown .lp-pre code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  white-space: pre;
+}
+.lp-markdown .lp-quote {
+  border-left: 3px solid theme('colors.line');
+  padding-left: 0.8em;
+  color: theme('colors.ink.soft');
+  margin: 0.5em 0;
+}
+
 /* Thin, unobtrusive scrollbars */
 ::-webkit-scrollbar {
   width: 10px;

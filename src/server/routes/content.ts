@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { createNote, deleteNote, listNotes, updateNote } from '../repo/notes.ts'
 import { createIdea, deleteIdea, listIdeas, updateIdea } from '../repo/ideas.ts'
-import { createTask, deleteTask, listTasks, updateTask } from '../repo/tasks.ts'
+import { createTask, deleteTask, listTasks, moveTask, updateTask } from '../repo/tasks.ts'
 import type { Priority } from '../../shared/types.ts'
 
 export async function contentRoutes(app: FastifyInstance): Promise<void> {
@@ -97,6 +97,12 @@ export async function contentRoutes(app: FastifyInstance): Promise<void> {
     )
     if (!task) return reply.code(404).send({ error: 'Task not found' })
     return task
+  })
+
+  app.post('/tasks/:id/move', async (req) => {
+    const direction = (req.body as { direction?: 'up' | 'down' }).direction === 'up' ? 'up' : 'down'
+    moveTask(Number((req.params as { id: string }).id), direction)
+    return { ok: true }
   })
 
   app.delete('/tasks/:id', async (req) => {

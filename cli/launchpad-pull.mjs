@@ -119,12 +119,47 @@ async function cmdStatus(flags) {
   )
 }
 
+async function cmdList() {
+  const projects = await (await api('/api/projects')).json()
+  if (projects.length === 0) {
+    console.log('No projects registered.')
+    return
+  }
+  const width = Math.max(...projects.map((p) => p.name.length))
+  for (const p of projects) {
+    const dirty = p.git?.dirty ? ' *' : ''
+    console.log(`  ${p.name.padEnd(width)}  ${String(p.status).padEnd(8)}  ${p.activity}${dirty}`)
+  }
+  console.log(`\n${projects.length} project(s)${projects.some((p) => p.git?.dirty) ? '  (* = uncommitted changes)' : ''}`)
+}
+
+async function cmdOpen(flags) {
+  const project = await resolveProject(flags)
+  await api(`/api/projects/${project.id}/open`, { method: 'POST' })
+  console.log(`✓ Opening "${project.name}" in your editor`)
+}
+
+async function cmdNote(flags, positional) {
+  const text = positional.slice(1).join(' ').trim() || String(flags.text || '').trim()
+  if (!text) throw new Error('Usage: launchpad note "your note text" [--project <name|id>]')
+  const project = await resolveProject(flags)
+  await api(`/api/projects/${project.id}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: '', body: text })
+  })
+  console.log(`✓ Added note to "${project.name}"`)
+}
+
 function printHelp() {
   console.log(`Launchpad CLI
 
 Usage:
   launchpad pull [--project <name|id>] [--print]   Write ai-instructions/LAUNCHPAD.md for this project
   launchpad status [--project <name|id>]           Print this project's status
+  launchpad list                                   List all registered projects
+  launchpad open [--project <name|id>]             Open the project in your editor
+  launchpad note "text" [--project <name|id>]      Add a note to the project
   launchpad help                                   Show this help
 
 Environment:
@@ -138,6 +173,9 @@ async function main() {
   try {
     if (command === 'pull') await cmdPull(flags)
     else if (command === 'status') await cmdStatus(flags)
+    else if (command === 'list') await cmdList()
+    else if (command === 'open') await cmdOpen(flags)
+    else if (command === 'note') await cmdNote(flags, positional)
     else if (command === 'help' || flags.help) printHelp()
     else {
       console.error(`Unknown command: ${command}\n`)

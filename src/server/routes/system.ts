@@ -2,7 +2,10 @@ import type { FastifyInstance } from 'fastify'
 import { getSettings, updateSettings } from '../repo/settings.ts'
 import { discoverProjects, scanAll } from '../services/scanner.ts'
 import { importOldLaunchpad } from '../services/importer.ts'
-import { getPort } from '../config.ts'
+import { exportAll, importAll, type BackupData } from '../services/backup.ts'
+import { openFolder } from '../services/launcher.ts'
+import { getDataDir, getPort } from '../config.ts'
+import { nowIso } from '../db/database.ts'
 
 export async function systemRoutes(app: FastifyInstance): Promise<void> {
   app.get('/health', async () => ({ ok: true, service: 'launchpad', port: getPort() }))
@@ -21,6 +24,27 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
   app.post('/rescan', async () => {
     await scanAll()
     return { ok: true }
+  })
+
+  app.get('/data-dir', async () => ({ dataDir: getDataDir() }))
+
+  app.post('/open-data-folder', async () => {
+    openFolder(getDataDir())
+    return { ok: true }
+  })
+
+  // Full-database JSON backup + restore.
+  app.get('/backup', async (_req, reply) => {
+    reply.header('Content-Disposition', 'attachment; filename="launchpad-backup.json"')
+    return exportAll(nowIso())
+  })
+
+  app.post('/restore', async (req, reply) => {
+    try {
+      return importAll(req.body as BackupData)
+    } catch (error) {
+      return reply.code(400).send({ error: String(error instanceof Error ? error.message : error) })
+    }
   })
 
   // Import projects from the original Launchpad's registry, relocating stale paths.

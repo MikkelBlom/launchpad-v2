@@ -1,5 +1,6 @@
 import { fromBool, getDb, nowIso, toBool } from '../db/database.ts'
-import type { GitActivity, GitInfo, Project, ProjectStatus } from '../../shared/types.ts'
+import { tagsByProject, tagsForProject } from './tags.ts'
+import type { GitActivity, GitInfo, Project, ProjectStatus, Tag } from '../../shared/types.ts'
 
 interface ProjectRow {
   id: number
@@ -49,7 +50,7 @@ function parseStack(raw: string): string[] {
   }
 }
 
-function mapRow(row: ProjectRow): Project {
+function mapRow(row: ProjectRow, tags: Tag[] = []): Project {
   const git: GitInfo = {
     hasGit: toBool(row.git_has),
     branch: row.git_branch,
@@ -79,7 +80,8 @@ function mapRow(row: ProjectRow): Project {
       notes: row.note_count,
       ideas: row.idea_count,
       openTasks: row.open_task_count
-    }
+    },
+    tags
   }
 }
 
@@ -95,17 +97,18 @@ export function listProjects(): Project[] {
   const rows = getDb()
     .prepare(`${SELECT} ORDER BY p.is_favorite DESC, p.git_last_commit_at DESC, p.name ASC`)
     .all() as unknown as ProjectRow[]
-  return rows.map(mapRow)
+  const tagMap = tagsByProject()
+  return rows.map((row) => mapRow(row, tagMap.get(row.id) ?? []))
 }
 
 export function getProject(id: number): Project | null {
   const row = getDb().prepare(`${SELECT} WHERE p.id = ?`).get(id) as unknown as ProjectRow | undefined
-  return row ? mapRow(row) : null
+  return row ? mapRow(row, tagsForProject(row.id)) : null
 }
 
 export function getProjectByPath(path: string): Project | null {
   const row = getDb().prepare(`${SELECT} WHERE p.path = ?`).get(path) as unknown as ProjectRow | undefined
-  return row ? mapRow(row) : null
+  return row ? mapRow(row, tagsForProject(row.id)) : null
 }
 
 export interface CreateProjectInput {

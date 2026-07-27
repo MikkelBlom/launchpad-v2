@@ -1,13 +1,19 @@
 import type {
+  ActivityItem,
   AppSettings,
   Capture,
   CaptureKind,
+  DashboardStats,
+  DuplicateGroup,
+  GitCommit,
   Idea,
   LaunchProfile,
   Note,
   Priority,
   Project,
   ProjectStatus,
+  SearchHit,
+  Tag,
   Task
 } from '../../shared/types'
 
@@ -100,8 +106,10 @@ export const api = {
     req<Task>(`/projects/${projectId}/tasks`, { method: 'POST', ...body(data) }),
   updateTask: (
     id: number,
-    patch: Partial<{ title: string; status: string; priority: Priority; sort: number }>
+    patch: Partial<{ title: string; status: string; priority: Priority; sort: number; dueDate: string | null }>
   ) => req<Task>(`/tasks/${id}`, { method: 'PATCH', ...body(patch) }),
+  moveTask: (id: number, direction: 'up' | 'down') =>
+    req<{ ok: true }>(`/tasks/${id}/move`, { method: 'POST', ...body({ direction }) }),
   deleteTask: (id: number) => req<{ ok: true }>(`/tasks/${id}`, { method: 'DELETE' }),
 
   // Launch profiles
@@ -135,5 +143,44 @@ export const api = {
     req<{ project: Project; path: string; warnings: string[]; githubCreated: boolean }>(
       '/scaffold',
       { method: 'POST', ...body(data) }
-    )
+    ),
+
+  // Tags
+  listTags: () => req<Tag[]>('/tags'),
+  createTag: (name: string, color?: string) =>
+    req<Tag>('/tags', { method: 'POST', ...body({ name, color }) }),
+  updateTag: (id: number, patch: { name?: string; color?: string }) =>
+    req<{ ok: true }>(`/tags/${id}`, { method: 'PATCH', ...body(patch) }),
+  deleteTag: (id: number) => req<{ ok: true }>(`/tags/${id}`, { method: 'DELETE' }),
+  addProjectTag: (projectId: number, data: { tagId?: number; name?: string; color?: string }) =>
+    req<Project>(`/projects/${projectId}/tags`, { method: 'POST', ...body(data) }),
+  removeProjectTag: (projectId: number, tagId: number) =>
+    req<Project>(`/projects/${projectId}/tags/${tagId}`, { method: 'DELETE' }),
+
+  // Insights
+  stats: () => req<DashboardStats>('/stats'),
+  activity: (limit = 40) => req<ActivityItem[]>(`/activity?limit=${limit}`),
+  search: (q: string) => req<SearchHit[]>(`/search?q=${encodeURIComponent(q)}`),
+  commits: (projectId: number) => req<GitCommit[]>(`/projects/${projectId}/commits`),
+  readme: (projectId: number) => req<{ content: string }>(`/projects/${projectId}/readme`),
+  duplicates: () => req<DuplicateGroup[]>('/duplicates'),
+  merge: (keeperId: number, nestedIds: number[]) =>
+    req<{ merged: number }>('/merge', { method: 'POST', ...body({ keeperId, nestedIds }) }),
+
+  // Project actions
+  openTerminal: (id: number) =>
+    req<{ ok: true }>(`/projects/${id}/open-terminal`, { method: 'POST' }),
+  exportFile: (id: number) =>
+    req<{ path: string }>(`/projects/${id}/export-file`, { method: 'POST' }),
+  bulkUpdate: (ids: number[], patch: { status?: ProjectStatus; isFavorite?: boolean }) =>
+    req<{ ok: true; count: number }>('/projects/bulk', { method: 'POST', ...body({ ids, patch }) }),
+  bulkDelete: (ids: number[]) =>
+    req<{ ok: true; count: number }>('/projects/bulk-delete', { method: 'POST', ...body({ ids }) }),
+
+  // Data
+  dataDir: () => req<{ dataDir: string }>('/data-dir'),
+  openDataFolder: () => req<{ ok: true }>('/open-data-folder', { method: 'POST' }),
+  backup: () => req<unknown>('/backup'),
+  restore: (data: unknown) =>
+    req<{ restored: Record<string, number> }>('/restore', { method: 'POST', ...body(data) })
 }

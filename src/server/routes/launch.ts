@@ -6,7 +6,7 @@ import {
   updateLaunchProfile
 } from '../repo/launchProfiles.ts'
 import { getProject } from '../repo/projects.ts'
-import { openFolder, openUrl, runLaunchProfile, gitRemoteToHttps } from '../services/launcher.ts'
+import { openFolder, openTerminal, openUrl, runLaunchProfile, gitRemoteToHttps } from '../services/launcher.ts'
 import {
   createCapture,
   deleteCapture,
@@ -61,6 +61,13 @@ export async function launchRoutes(app: FastifyInstance): Promise<void> {
     const project = getProject(Number((req.params as { id: string }).id))
     if (!project) return reply.code(404).send({ error: 'Project not found' })
     openFolder(project.path)
+    return { ok: true }
+  })
+
+  app.post('/projects/:id/open-terminal', async (req, reply) => {
+    const project = getProject(Number((req.params as { id: string }).id))
+    if (!project) return reply.code(404).send({ error: 'Project not found' })
+    openTerminal(project.path)
     return { ok: true }
   })
 

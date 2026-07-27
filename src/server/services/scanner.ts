@@ -186,8 +186,11 @@ export interface DiscoveryResult {
 
 // Walk each configured root up to `maxDepth` deep, registering any new project
 // folders found. Does not descend into a folder once it is recognised as a project.
-export async function discoverProjects(maxDepth = 2): Promise<DiscoveryResult> {
-  const roots = getSettings().projectRoots
+export async function discoverProjects(): Promise<DiscoveryResult> {
+  const settings = getSettings()
+  const roots = settings.projectRoots
+  const maxDepth = settings.scanDepth > 0 ? settings.scanDepth : 2
+  const excludeSet = new Set(settings.excludeDirs.map((d) => d.toLowerCase()))
   const added: string[] = []
 
   function walk(dir: string, depth: number): void {
@@ -199,7 +202,8 @@ export async function discoverProjects(maxDepth = 2): Promise<DiscoveryResult> {
       return
     }
     for (const entry of entries) {
-      if (SKIP_DIRS.has(entry.toLowerCase())) continue
+      const lower = entry.toLowerCase()
+      if (SKIP_DIRS.has(lower) || excludeSet.has(lower)) continue
       const full = join(dir, entry)
       let isDir = false
       try {

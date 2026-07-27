@@ -8,7 +8,13 @@ import { getDataDir, getPort } from '../config.ts'
 import { nowIso } from '../db/database.ts'
 
 export async function systemRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/health', async () => ({ ok: true, service: 'launchpad', port: getPort() }))
+  // `apiVersion` lets an agent CLI detect a Launchpad older than the commands it knows.
+  app.get('/health', async () => ({
+    ok: true,
+    service: 'launchpad',
+    port: getPort(),
+    apiVersion: 3
+  }))
 
   app.get('/settings', async () => getSettings())
 

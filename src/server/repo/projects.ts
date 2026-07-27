@@ -85,11 +85,13 @@ function mapRow(row: ProjectRow, tags: Tag[] = []): Project {
   }
 }
 
+// Counts mirror what the UI shows by default: archived items don't exist as far as the
+// dashboard is concerned.
 const SELECT = `
   SELECT p.*,
-    (SELECT COUNT(*) FROM notes n WHERE n.project_id = p.id) AS note_count,
+    (SELECT COUNT(*) FROM notes n WHERE n.project_id = p.id AND n.archived_at IS NULL) AS note_count,
     (SELECT COUNT(*) FROM ideas i WHERE i.project_id = p.id AND i.status = 'open') AS idea_count,
-    (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status != 'done') AS open_task_count
+    (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status != 'done' AND t.archived_at IS NULL) AS open_task_count
   FROM projects p
 `
 

@@ -17,6 +17,31 @@ Plain status tracker (readable markdown — this is not machine-parsed).
 - **Settings** — project roots, editor command, github user, scan-on-startup, CLI install hint.
 - **Import from old Launchpad** — reads the original registry and imports projects, relocating stale/OneDrive paths by name; result summary in Settings.
 
+## Done (v0.2 — agent read/write surface)
+
+- **Migration v3** — `tasks.body`, `archived_at` on tasks/notes, `source` + `updated_by` on
+  tasks/ideas/notes, polymorphic `item_tags` (tags on individual tasks/ideas/notes), and an
+  append-only `changes` table.
+- **Provenance** — every write carries a source (`ui`/`cli`/`agent`/`import`) + actor, taken from
+  the `X-Launchpad-Source` / `X-Launchpad-Actor` headers. Visible via `launchpad log` / `/api/changes`.
+- **Archive instead of delete** — tasks and notes archive via `archived_at`, ideas via
+  `status='archived'`. Agents have no delete verb at all; the UI keeps both.
+- **Item-level tags** — API (`POST`/`PUT`/`DELETE /api/{tasks,ideas,notes}/:id/tags`), CLI verbs,
+  and tag chips with an inline adder on every task/idea/note in the UI.
+- **Batch push** — `POST /api/projects/:id/push` (+ `?dryRun=true`). Merge-only, idempotent
+  (matches items by normalized title), transactional, validates enums, refuses to recreate
+  archived items, writes a full DB backup before every real apply, returns a change report.
+  Dry-run is the same code path rolled back, so a preview can't drift from the apply.
+- **Audit** — `/api/audit` + `/api/projects/:id/audit`: missing description/tags/tasks/notes,
+  untagged items, stalled-but-active, uncommitted, missing path. Shown as "Gaps" in the UI.
+- **Per-project agent handles** — `ai-instructions/.launchpad.json` binding (walked up from cwd),
+  a Launchpad block injected into `ai-instructions/CLAUDE.md`, and a **Copy agent prompt** button
+  in the project Overview. Resolution: `--project` → `$LAUNCHPAD_PROJECT` → binding → cwd → error.
+- **Full CLI** — `guide`, `ping`, `whoami`, `bind`/`unbind`, `onboard`, `list`, `status`, `pull`,
+  `audit`, `search`, `log`, `set`, `rename`, `scan`, `register`, `tag(s)`, `task|idea|note`
+  (add/get/update/archive/unarchive/tag/untag/tags + done/reopen/move/promote/pin/unpin),
+  `inbox`, `push`. `--json` on reads; `--by` for actor attribution.
+
 ## Planned / not yet
 
 - Global hotkey for capture (currently in-app capture bar only).

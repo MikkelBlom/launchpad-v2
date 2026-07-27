@@ -11,6 +11,17 @@ export type IdeaStatus = 'open' | 'promoted' | 'archived'
 export type CaptureKind = 'idea' | 'task' | 'note' | 'link'
 export type LaunchKind = 'vscode' | 'shell' | 'url' | 'folder'
 
+// Which surface made a write. Agents identify themselves so their edits stay reviewable.
+export type WriteSource = 'ui' | 'cli' | 'agent' | 'import'
+
+// The three per-project item kinds that can carry their own tags.
+export type ItemType = 'task' | 'idea' | 'note'
+
+export interface Provenance {
+  source: WriteSource
+  actor: string
+}
+
 export interface GitInfo {
   hasGit: boolean
   branch: string | null
@@ -59,6 +70,10 @@ export interface Note {
   title: string
   body: string
   pinned: boolean
+  archivedAt: string | null
+  source: WriteSource
+  updatedBy: string
+  tags: Tag[]
   createdAt: string
   updatedAt: string
 }
@@ -70,6 +85,9 @@ export interface Idea {
   body: string
   priority: Priority
   status: IdeaStatus
+  source: WriteSource
+  updatedBy: string
+  tags: Tag[]
   createdAt: string
   updatedAt: string
 }
@@ -78,10 +96,15 @@ export interface Task {
   id: number
   projectId: number
   title: string
+  body: string
   status: TaskStatus
   priority: Priority
   sort: number
   dueDate: string | null
+  archivedAt: string | null
+  source: WriteSource
+  updatedBy: string
+  tags: Tag[]
   createdAt: string
   updatedAt: string
   doneAt: string | null
@@ -163,7 +186,8 @@ export interface DuplicateGroup {
   nested: Array<{ id: number; name: string; path: string }>
 }
 
-// Payload returned to an AI agent pulling a project's data into its repo.
+// Payload returned to an AI agent pulling a project's data into its repo. Item ids are
+// included so an agent can address anything it just read (`launchpad task update 42 …`).
 export interface ProjectExport {
   generatedAt: string
   project: {
@@ -172,8 +196,105 @@ export interface ProjectExport {
     path: string
     description: string
     status: ProjectStatus
+    tags: string[]
+    stack: string[]
+    activity: GitActivity
   }
-  notes: Array<Pick<Note, 'title' | 'body' | 'updatedAt'>>
-  ideas: Array<Pick<Idea, 'title' | 'body' | 'priority' | 'status' | 'updatedAt'>>
-  tasks: Array<Pick<Task, 'title' | 'status' | 'priority' | 'updatedAt'>>
+  notes: Array<Pick<Note, 'id' | 'title' | 'body' | 'pinned' | 'updatedAt'> & { tags: string[] }>
+  ideas: Array<
+    Pick<Idea, 'id' | 'title' | 'body' | 'priority' | 'status' | 'updatedAt'> & { tags: string[] }
+  >
+  tasks: Array<
+    Pick<Task, 'id' | 'title' | 'body' | 'status' | 'priority' | 'dueDate' | 'updatedAt'> & {
+      tags: string[]
+    }
+  >
+}
+
+export interface ChangeEntry {
+  id: number
+  at: string
+  source: WriteSource
+  actor: string
+  projectId: number | null
+  entityType: string
+  entityId: number | null
+  action: string
+  summary: string
+}
+
+// "What still needs filling in" — the work list an agent reads before setting a project up.
+export interface AuditIssue {
+  code:
+    | 'no-description'
+    | 'no-tags'
+    | 'no-tasks'
+    | 'no-notes'
+    | 'untagged-items'
+    | 'stalled'
+    | 'uncommitted'
+    | 'missing-path'
+  detail: string
+}
+
+export interface ProjectAudit {
+  projectId: number
+  name: string
+  path: string
+  status: ProjectStatus
+  issues: AuditIssue[]
+}
+
+// ---- Batch push (agent → Launchpad) ----
+
+export interface PushItem {
+  id?: number
+  title: string
+  body?: string
+  priority?: Priority
+  tags?: string[]
+}
+
+export interface PushTask extends PushItem {
+  status?: TaskStatus
+  dueDate?: string | null
+}
+
+export interface PushIdea extends PushItem {
+  status?: IdeaStatus
+}
+
+export interface PushNote extends PushItem {
+  pinned?: boolean
+}
+
+export interface PushPlan {
+  project?: {
+    description?: string
+    status?: ProjectStatus
+    tags?: string[]
+  }
+  tasks?: PushTask[]
+  ideas?: PushIdea[]
+  notes?: PushNote[]
+}
+
+export interface PushChange {
+  type: ItemType | 'project'
+  action: 'created' | 'updated' | 'unchanged'
+  id: number | null
+  title: string
+  fields: string[]
+}
+
+export interface PushResult {
+  dryRun: boolean
+  projectId: number
+  projectName: string
+  created: number
+  updated: number
+  unchanged: number
+  changes: PushChange[]
+  warnings: string[]
+  backupPath: string | null
 }

@@ -6,7 +6,7 @@
   "type": "module",
   "author": "Mikkel",
   "bin": {
-    "launchpad": "cli/launchpad-pull.mjs"
+    "launchpad": "cli/launchpad.mjs"
   },
   "scripts": {
     "server": "tsx watch src/server/index.ts",
@@ -19,7 +19,7 @@
     "start": "node dist/server/index.js",
     "desktop": "electron electron/main.cjs",
     "typecheck": "tsc --noEmit",
-    "cli": "node cli/launchpad-pull.mjs"
+    "cli": "node cli/launchpad.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

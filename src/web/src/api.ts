@@ -3,19 +3,26 @@ import type {
   AppSettings,
   Capture,
   CaptureKind,
+  ChangeEntry,
   DashboardStats,
   DuplicateGroup,
   GitCommit,
   Idea,
+  ItemType,
   LaunchProfile,
   Note,
   Priority,
   Project,
+  ProjectAudit,
   ProjectStatus,
+  PushPlan,
+  PushResult,
   SearchHit,
   Tag,
   Task
 } from '../../shared/types'
+
+const SEGMENT: Record<ItemType, string> = { task: 'tasks', idea: 'ideas', note: 'notes' }
 
 export interface ImportResult {
   registrySource: string
@@ -81,7 +88,8 @@ export const api = {
     req<AppSettings>('/settings', { method: 'PUT', ...body(patch) }),
 
   // Notes
-  listNotes: (projectId: number) => req<Note[]>(`/projects/${projectId}/notes`),
+  listNotes: (projectId: number, includeArchived = false) =>
+    req<Note[]>(`/projects/${projectId}/notes${includeArchived ? '?includeArchived=true' : ''}`),
   createNote: (projectId: number, data: { title: string; body: string }) =>
     req<Note>(`/projects/${projectId}/notes`, { method: 'POST', ...body(data) }),
   updateNote: (id: number, patch: Partial<{ title: string; body: string; pinned: boolean }>) =>
@@ -89,7 +97,8 @@ export const api = {
   deleteNote: (id: number) => req<{ ok: true }>(`/notes/${id}`, { method: 'DELETE' }),
 
   // Ideas
-  listIdeas: (projectId: number) => req<Idea[]>(`/projects/${projectId}/ideas`),
+  listIdeas: (projectId: number, includeArchived = false) =>
+    req<Idea[]>(`/projects/${projectId}/ideas${includeArchived ? '?includeArchived=true' : ''}`),
   createIdea: (projectId: number, data: { title: string; body: string; priority: Priority }) =>
     req<Idea>(`/projects/${projectId}/ideas`, { method: 'POST', ...body(data) }),
   updateIdea: (
@@ -101,12 +110,20 @@ export const api = {
     req<Task>(`/ideas/${id}/promote`, { method: 'POST', ...body({ projectId }) }),
 
   // Tasks
-  listTasks: (projectId: number) => req<Task[]>(`/projects/${projectId}/tasks`),
-  createTask: (projectId: number, data: { title: string; priority: Priority }) =>
+  listTasks: (projectId: number, includeArchived = false) =>
+    req<Task[]>(`/projects/${projectId}/tasks${includeArchived ? '?includeArchived=true' : ''}`),
+  createTask: (projectId: number, data: { title: string; priority: Priority; body?: string }) =>
     req<Task>(`/projects/${projectId}/tasks`, { method: 'POST', ...body(data) }),
   updateTask: (
     id: number,
-    patch: Partial<{ title: string; status: string; priority: Priority; sort: number; dueDate: string | null }>
+    patch: Partial<{
+      title: string
+      body: string
+      status: string
+      priority: Priority
+      sort: number
+      dueDate: string | null
+    }>
   ) => req<Task>(`/tasks/${id}`, { method: 'PATCH', ...body(patch) }),
   moveTask: (id: number, direction: 'up' | 'down') =>
     req<{ ok: true }>(`/tasks/${id}/move`, { method: 'POST', ...body({ direction }) }),
@@ -156,6 +173,37 @@ export const api = {
     req<Project>(`/projects/${projectId}/tags`, { method: 'POST', ...body(data) }),
   removeProjectTag: (projectId: number, tagId: number) =>
     req<Project>(`/projects/${projectId}/tags/${tagId}`, { method: 'DELETE' }),
+
+  // Tags on individual tasks / ideas / notes
+  addItemTag: <T>(type: ItemType, id: number, name: string) =>
+    req<T>(`/${SEGMENT[type]}/${id}/tags`, { method: 'POST', ...body({ name }) }),
+  removeItemTag: <T>(type: ItemType, id: number, tagId: number) =>
+    req<T>(`/${SEGMENT[type]}/${id}/tags/${tagId}`, { method: 'DELETE' }),
+  setItemTags: <T>(type: ItemType, id: number, names: string[]) =>
+    req<T>(`/${SEGMENT[type]}/${id}/tags`, { method: 'PUT', ...body({ names }) }),
+
+  // Archiving — the reversible alternative to deletion
+  archiveItem: <T>(type: ItemType, id: number, archived = true) =>
+    req<T>(`/${SEGMENT[type]}/${id}/archive`, { method: 'POST', ...body({ archived }) }),
+
+  // Agent surface
+  audit: () => req<ProjectAudit[]>('/audit'),
+  auditProject: (id: number) => req<ProjectAudit>(`/projects/${id}/audit`),
+  agentPrompt: (id: number) => req<{ prompt: string }>(`/projects/${id}/agent-prompt`),
+  writeAgentInstructions: (id: number) =>
+    req<{ path: string; action: string }>(`/projects/${id}/agent-instructions`, { method: 'POST' }),
+  push: (id: number, plan: PushPlan, dryRun = false) =>
+    req<PushResult>(`/projects/${id}/push${dryRun ? '?dryRun=true' : ''}`, {
+      method: 'POST',
+      ...body(plan)
+    }),
+  changes: (params: { projectId?: number; limit?: number; source?: string } = {}) => {
+    const query = new URLSearchParams()
+    if (params.projectId !== undefined) query.set('projectId', String(params.projectId))
+    if (params.limit !== undefined) query.set('limit', String(params.limit))
+    if (params.source) query.set('source', params.source)
+    return req<ChangeEntry[]>(`/changes?${query.toString()}`)
+  },
 
   // Insights
   stats: () => req<DashboardStats>('/stats'),

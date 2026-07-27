@@ -29,7 +29,15 @@ A single background service (Node + TypeScript + Fastify) that:
   child under the system Node. Never move SQLite into the Electron process.
 - **Windows-first.** Use `path` helpers; normalize project paths with `normalizePath` so the
   CLI's cwd matching works. Avoid ports 3000/3001/5000.
-- **AI is optional / not yet present.** Every feature works with no network and no AI.
+- **AI is optional.** Every feature works with no network and no LLM. The agent surface is a
+  plain CLI over the same REST API the UI uses — no model runs inside Launchpad.
+- **Agents archive, never delete.** The CLI has no delete verb. `DELETE` endpoints exist for the
+  UI only. Every agent write is reversible and attributed.
+- **Never guess which project.** Targeting resolves `--project` → `$LAUNCHPAD_PROJECT` →
+  `ai-instructions/.launchpad.json` → cwd path, then hard-errors. Do not add a fallback.
+- **Batch push is merge-only and idempotent.** Match by normalized title, update in place, never
+  remove. If you touch `services/agentPush.ts`, keep dry-run on the same code path (transaction
+  + rollback) so the preview cannot drift from the apply.
 
 ## Architecture
 
@@ -40,12 +48,14 @@ src/
     config.ts              port, data dir, path normalization
     db/                    node:sqlite connection + migrations
     repo/                  data access per entity (projects, notes, ideas, tasks, ...)
-    services/              scanner (git/fs/readme), launcher, scaffolder, exporter
+    services/              scanner (git/fs/readme), launcher, scaffolder, exporter,
+                           agentPush (batch apply), audit, agentDocs, provenance
     routes/                thin Fastify handlers → repo/services
     app.ts / index.ts      server factory + entrypoint
   web/                     React + Vite + Tailwind UI
 electron/                  thin desktop shell (main.cjs, preload.cjs)
-cli/launchpad-pull.mjs     zero-dep agent CLI (`launchpad pull`)
+cli/launchpad.mjs          zero-dep agent CLI — the whole agent surface (`launchpad guide`)
+cli/launchpad-pull.mjs     shim for the original bin path; do not delete (see WORKING_NOTES)
 ```
 
 Data flow: UI/CLI → REST API (`/api/*`) → repo/services → SQLite. The scanner reads git +

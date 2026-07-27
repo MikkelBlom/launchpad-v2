@@ -171,3 +171,20 @@ export const IconList = (p: IconProps) => (
   </svg>
 )
 export const IconClock2 = IconClock
+
+export const IconArchive = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2" y="4" width="20" height="5" rx="1" />
+    <path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9" />
+    <line x1="10" y1="13" x2="14" y2="13" />
+  </svg>
+)
+
+export const IconRobot = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="4" y="8" width="16" height="12" rx="2" />
+    <path d="M12 8V4" />
+    <circle cx="9" cy="14" r="1" />
+    <circle cx="15" cy="14" r="1" />
+  </svg>
+)

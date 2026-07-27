@@ -11,12 +11,14 @@ const TABLES = [
   'notes',
   'ideas',
   'tasks',
+  'item_tags',
+  'changes',
   'launch_profiles',
   'captures'
 ] as const
 
 export interface BackupData {
-  version: 2
+  version: number
   exportedAt: string
   tables: Record<string, Array<Record<string, unknown>>>
 }
@@ -29,7 +31,7 @@ export function exportAll(exportedAt: string): BackupData {
       Record<string, unknown>
     >
   }
-  return { version: 2, exportedAt, tables }
+  return { version: 3, exportedAt, tables }
 }
 
 export function importAll(data: BackupData): { restored: Record<string, number> } {

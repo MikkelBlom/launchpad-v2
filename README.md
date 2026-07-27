@@ -58,23 +58,61 @@ are intentionally avoided).
    and reads its git status.
 3. Back on **Projects**, click any card to launch it, add tasks/ideas/notes, or edit it.
 
-## The agent CLI — `launchpad pull`
+## The agent CLI — `launchpad`
 
-So AI agents working *inside* a project can fetch that project's notes/ideas/tasks without
-you doing anything manually:
+AI agents read *and write* Launchpad through a CLI. It is the whole agent surface: no MCP
+server, no API keys, works in anything with a terminal.
 
 ```bash
 # Install the command once (from this folder):
 npm link          # or: npm install -g .
 
-# Then, from any registered project folder:
-launchpad pull    # writes ai-instructions/LAUNCHPAD.md (+ .launchpad.json)
-launchpad status  # prints this project's status
+launchpad guide   # the complete agent manual — commands, rules, push-plan schema
 ```
 
-`launchpad pull` auto-detects which project you're in (by folder path), calls the local
-Launchpad API, and writes a readable snapshot an agent can consume. Override the target
-with `--project "<name>"`, or the service URL with the `LAUNCHPAD_URL` env var.
+### Pointing an agent at one specific project
+
+An agent should never have to pick the right project out of a list. Two mechanisms make
+the target explicit:
+
+```bash
+launchpad onboard          # run once per project, from inside it
+```
+
+That writes `ai-instructions/.launchpad.json` (the binding), inserts a **Launchpad block**
+into `ai-instructions/CLAUDE.md` telling any agent which project this is and how to write
+to it, and pulls a fresh snapshot. Afterwards every `launchpad` command run anywhere in
+that folder tree targets that project automatically.
+
+For a fresh chat session, the project's **Overview** tab has a **Copy agent prompt** button
+that yields a paste-ready block naming the project by id.
+
+Targeting resolves most-explicit-first and **never guesses**:
+
+```
+--project <id|name>  →  $LAUNCHPAD_PROJECT  →  ai-instructions/.launchpad.json  →  cwd path
+```
+
+### What agents can do
+
+Read: `pull`, `status`, `audit`, `search`, `log`, `tasks`/`ideas`/`notes`.
+Write: project description/status/tags, plus full CRUD on tasks, ideas and notes —
+including tags, task bodies, due dates, priorities, promote, pin, and reorder.
+
+Bulk setup goes through a single batch call:
+
+```bash
+launchpad push plan.json --dry-run   # preview
+launchpad push plan.json             # apply
+```
+
+Push is **merge-only and idempotent**: it matches items by title, updates instead of
+duplicating, never deletes, and writes a full database backup before every real apply.
+Agents **archive rather than delete** — nothing they do is unrecoverable. Every write is
+stamped with its source (`ui` / `cli` / `agent` / `import`) and is visible in
+`launchpad log` and the change table.
+
+Override the service URL with the `LAUNCHPAD_URL` env var.
 
 ## Data location
 

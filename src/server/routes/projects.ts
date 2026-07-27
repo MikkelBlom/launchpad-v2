@@ -13,6 +13,8 @@ import {
 import { scanProject } from '../services/scanner.ts'
 import { buildExport, renderExportMarkdown, writeExportToProject } from '../services/exporter.ts'
 import { openInEditor } from '../services/launcher.ts'
+import { provenanceFrom } from '../services/provenance.ts'
+import { recordChange } from '../repo/changes.ts'
 import { normalizePath } from '../config.ts'
 import type { ProjectStatus } from '../../shared/types.ts'
 
@@ -68,11 +70,18 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.patch('/projects/:id', async (req, reply) => {
-    const project = updateProject(
-      Number((req.params as { id: string }).id),
-      req.body as Record<string, never>
-    )
+    const id = Number((req.params as { id: string }).id)
+    const patch = (req.body ?? {}) as Record<string, unknown>
+    const project = updateProject(id, patch)
     if (!project) return reply.code(404).send({ error: 'Project not found' })
+    recordChange({
+      provenance: provenanceFrom(req),
+      projectId: id,
+      entityType: 'project',
+      entityId: id,
+      action: 'updated',
+      summary: Object.keys(patch).join(', ')
+    })
     return project
   })
 

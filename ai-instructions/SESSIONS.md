@@ -1,5 +1,39 @@
 # Sessions — Launchpad v2
 
+## 2026-07-27 — Agent read/write surface (push/pull, item tags, per-project handles)
+
+**Agent:** Claude Code (Opus 5).
+
+Goal: let AI agents do "most everything" in Launchpad, and make each agent session target one
+specific project without having to pick it from a list of 30.
+
+- **Design calls made with Mikkel:** agents archive but never delete; item-level tags built now
+  (not deferred); CLI only (no MCP for now — he uses Claude almost exclusively, and `npm link`
+  is the only setup).
+- **Pushed back on** markdown round-tripping for "push" (that was the v1 failure mode). Push is
+  an explicit, schema-validated JSON plan applied through the API instead.
+- **Migration v3** + provenance + `changes` log + `item_tags`; `tasks.body` added (tasks were
+  title-only, so an ingesting agent had nowhere to put context).
+- **`services/agentPush.ts`** — merge-only, idempotent-by-title batch apply. Dry-run runs the
+  identical path inside a rolled-back transaction. Pre-apply DB backup to `<dataDir>/backups/`.
+- **`services/audit.ts`, `services/agentDocs.ts`, `services/provenance.ts`**, routes in
+  `routes/agent.ts`.
+- **CLI rewritten** as `cli/launchpad.mjs` (~30 commands). `cli/launchpad-pull.mjs` is kept as a
+  one-line shim so an existing `npm link` install doesn't break.
+- **UI:** tag chips + inline adder on every item, "Show archived" toggles, archive buttons, a
+  "Hand this project to an agent" panel (copy prompt / copy commands / write CLAUDE.md block),
+  and a "Gaps" panel backed by the audit endpoint.
+
+**Verified:** `tsc --noEmit` clean; every CLI command exercised against the live service on a
+throwaway project (since deleted) — including dry-run-then-apply, a second identical push
+returning `0 created, 0 updated, 8 unchanged`, and the archived-item guard. UI verified in the
+browser: tag add round-trips and lands in the change log with the right source.
+
+**Watch-out:** the running server was `node --import tsx src/server/index.ts` (no `watch`), spawned
+by the Electron shell, so it needed a manual restart to pick up changes. Electron does **not**
+respawn its server child on exit — after this session, restart the desktop app once so it owns
+its own server process again.
+
 ## 2026-07-07 — Big feature batch (35 items across dashboard, projects, tasks, capture, CLI)
 
 **Agent:** Claude Code (Opus 4.8), autonomous session (no new dependencies allowed).

@@ -115,6 +115,52 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       CREATE INDEX idx_project_tags_project ON project_tags(project_id);
       CREATE INDEX idx_project_tags_tag ON project_tags(tag_id);
     `)
+  },
+  // v3 — agent write surface: task bodies, archiving instead of deletion, provenance,
+  // tags on individual items, and an append-only change log.
+  (db) => {
+    db.exec(`
+      ALTER TABLE tasks ADD COLUMN body TEXT NOT NULL DEFAULT '';
+      ALTER TABLE tasks ADD COLUMN archived_at TEXT;
+      ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'ui';
+      ALTER TABLE tasks ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+
+      ALTER TABLE notes ADD COLUMN archived_at TEXT;
+      ALTER TABLE notes ADD COLUMN source TEXT NOT NULL DEFAULT 'ui';
+      ALTER TABLE notes ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+
+      ALTER TABLE ideas ADD COLUMN source TEXT NOT NULL DEFAULT 'ui';
+      ALTER TABLE ideas ADD COLUMN updated_by TEXT NOT NULL DEFAULT '';
+
+      -- Polymorphic tag links for tasks/ideas/notes. There is deliberately no foreign key
+      -- on (item_type, item_id) — SQLite cannot express one — so the repo layer clears
+      -- orphaned rows when an item is deleted.
+      CREATE TABLE item_tags (
+        item_type TEXT NOT NULL,
+        item_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (item_type, item_id, tag_id)
+      );
+
+      CREATE INDEX idx_item_tags_item ON item_tags(item_type, item_id);
+      CREATE INDEX idx_item_tags_tag ON item_tags(tag_id);
+
+      -- Append-only trail of writes, so an agent's changes are visible and reviewable.
+      CREATE TABLE changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'ui',
+        actor TEXT NOT NULL DEFAULT '',
+        project_id INTEGER,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER,
+        action TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT ''
+      );
+
+      CREATE INDEX idx_changes_at ON changes(at);
+      CREATE INDEX idx_changes_project ON changes(project_id);
+    `)
   }
 ]
 

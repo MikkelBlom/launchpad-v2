@@ -8,6 +8,8 @@ import {
   updateTag
 } from '../repo/tags.ts'
 import { getProject } from '../repo/projects.ts'
+import { recordChange } from '../repo/changes.ts'
+import { provenanceFrom } from '../services/provenance.ts'
 
 export async function tagRoutes(app: FastifyInstance): Promise<void> {
   app.get('/tags', async () => listTags())
@@ -42,13 +44,31 @@ export async function tagRoutes(app: FastifyInstance): Promise<void> {
     }
     if (!tagId) return reply.code(400).send({ error: 'tagId or name is required' })
     addTagToProject(projectId, tagId)
-    return getProject(projectId)
+    const updated = getProject(projectId)
+    recordChange({
+      provenance: provenanceFrom(req),
+      projectId,
+      entityType: 'project',
+      entityId: projectId,
+      action: 'tagged',
+      summary: (updated?.tags ?? []).map((t) => t.name).join(', ')
+    })
+    return updated
   })
 
   app.delete('/projects/:id/tags/:tagId', async (req) => {
     const projectId = Number((req.params as { id: string; tagId: string }).id)
     const tagId = Number((req.params as { id: string; tagId: string }).tagId)
     removeTagFromProject(projectId, tagId)
-    return getProject(projectId)
+    const updated = getProject(projectId)
+    recordChange({
+      provenance: provenanceFrom(req),
+      projectId,
+      entityType: 'project',
+      entityId: projectId,
+      action: 'tagged',
+      summary: (updated?.tags ?? []).map((t) => t.name).join(', ') || '(none)'
+    })
+    return updated
   })
 }

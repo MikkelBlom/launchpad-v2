@@ -1,5 +1,53 @@
 # Sessions — Launchpad v2
 
+## 2026-07-30 (latest) — A project can claim many ports, and claiming is enforced
+
+**Agent:** Claude Code (Opus 5).
+
+Reported: a project should be able to claim several ports (it runs several processes). Two bugs
+came with the report — 3000 was claimed by two projects at once even though it is permanently
+taken on this machine, and `ports free` suggested 7431 while another project already held it.
+
+**What was actually wrong.** `setProjectPort` only range-checked. `checkPort` knew about
+`RESERVED_PORTS` and about other projects' claims, but nothing consulted it before writing: the
+CLI printed its verdict as a *warning* and claimed anyway. Detection was worse — it stored
+whatever the config file said, which is how three projects came to hold 3000, each "detected"
+from its own `.claude/launch.json`. `PATCH /api/projects/:id` passed its body straight to
+`updateProject`, so `devPort` could be written unvalidated (a string `"7431"` would never have
+matched the numeric claim index — invisible to both the suggester and the conflict check).
+`suggestPorts` did exclude claims, but nothing about its output said so, and nothing stopped the
+port it suggested from being claimed by someone else a second later.
+
+**Built:**
+- Migration v6 → `project_ports` (project_id, port, label, source, sort), seeded from the old
+  columns. UNIQUE is `(project_id, port)`, deliberately not `port` alone: the collision has to be
+  representable so the UI can show it, and a unique index would have failed on the live data.
+- `assertClaimable` — the single gate every write goes through. Reserved: refused, `--force` or
+  not. Held by another project: 409 naming them, forceable. Detection routes through it too.
+- `Project.ports` (ordered; first is primary) with `devPort`/`devPortSource` derived from it.
+- Detection reads *all* ports the winning file declares (compose mappings, launch.json
+  configurations, `dev:web` + `dev:api`), caps at 6, and reports what it refused.
+- `ports free` returns what it skipped and why. UI + CLI + the agent CLAUDE.md block all updated.
+- Backup version 4 includes `project_ports`; restoring an older backup rebuilds claims from the
+  legacy columns rather than silently leaving every project portless.
+
+**Also fixed (pre-existing, hit constantly by the new refusal path):** the CLI aborted with a
+libuv assertion and exit code **127** instead of 1 whenever an error followed an earlier request
+— a keep-alive socket still open at `process.exit()`. Requests now send `Connection: close` and
+the error path sets `process.exitCode`. Reproduced against an untouched route before changing
+anything, so this is not a regression from this work.
+
+**Verified:** on a **copy** of the live database (`LAUNCHPAD_DATA_DIR`, service on 7439, per the
+"dev is not a sandbox" rule). Migration preserved every existing claim including the 3000
+collision; conflict → 409, reserved → refused even with `--force`, three ports on one project,
+`set port` replaces while `ports add` appends, detection of a compose file declaring 7440/7441 +
+3000 claimed the first two and explained the third, `PATCH devPort` → 400, a refused claim left
+the project untouched. UI checked in the browser against that same copy (conflict + reserved
+banners, per-project grouping, live check-as-you-type, refusal toast). `tsc --noEmit` clean.
+
+**Not done:** the live database still has three projects on 3000 and one on 3001 — real data, not
+mine to rewrite. The ports page now flags them; they need moving to free ports.
+
 ## 2026-07-30 (later) — Onboarded projects offering to onboard again
 
 **Agent:** Claude Code (Opus 5).

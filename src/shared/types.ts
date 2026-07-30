@@ -65,8 +65,12 @@ export interface Project {
   // Live deployment, either detected from Vercel or entered by hand.
   liveUrl: string | null
   vercelProjectId: string | null
-  // The localhost port this project's dev server runs on, and where that came from
-  // (e.g. "vite.config.ts", "manual") so a detected value can be told from a claimed one.
+  // Every localhost port this project claims — a project that runs several processes
+  // (web + api + worker) claims one per process. Ordered; the first is the primary.
+  ports: PortClaim[]
+  // The primary port and where it came from. Both are DERIVED from `ports[0]` — they exist
+  // so the many one-port affordances (card badge, "open localhost", the agent block) don't
+  // each have to reach into the array. Never write them; write a claim.
   devPort: number | null
   devPortSource: string | null
   // False when the folder has been moved, renamed, or deleted on disk.
@@ -160,24 +164,51 @@ export interface AppSettings {
 
 // ---- Dev server ports ----
 
-export interface ProjectPort {
+// One port claimed by one project. A project claims as many as it runs processes.
+export interface PortClaim {
+  id: number
   projectId: number
-  name: string
-  devPort: number | null
-  devPortSource: string | null
-  url: string | null
+  port: number
+  // What runs on it ("web", "api", "docs") — free text, blank when there's nothing to say.
+  label: string
+  // Where the number came from: "manual", or the config file it was detected in.
+  source: string
+  sort: number
+}
+
+// A claim as the ports page shows it: the claim itself plus everything only the machine
+// and the rest of the database can say about it.
+export interface PortClaimRow extends PortClaim {
+  projectName: string
+  url: string
   // Whether something is actually listening on that port right now.
   listening: boolean
-  // Another project laying claim to the same port — a collision worth surfacing.
+  // A port Launchpad must never hand out (permanently taken on this machine, or its own).
+  reserved: boolean
+  // Other projects laying claim to the same port — a collision worth surfacing.
   conflictsWith: string[]
 }
 
 export interface PortOverview {
-  projects: ProjectPort[]
+  // Every claim in Launchpad, ascending by port.
+  claims: PortClaimRow[]
+  // Projects claiming nothing, so the UI can offer to detect one.
+  unclaimed: Array<{ projectId: number; name: string }>
   // Ports currently listening on this machine, whether or not Launchpad knows them.
   listening: number[]
   // Free ports Launchpad suggests claiming next.
   suggested: number[]
+}
+
+// What `ports free` skipped on its way to the suggestions, so the caller can see that the
+// list accounts for claims and not just for what happens to be listening.
+export interface PortSuggestion {
+  ports: number[]
+  skipped: {
+    claimed: number[]
+    listening: number[]
+    reserved: number[]
+  }
 }
 
 export interface PortCheck {
@@ -185,7 +216,24 @@ export interface PortCheck {
   available: boolean
   listening: boolean
   claimedBy: string | null
+  // True for ports Launchpad refuses to hand out at all.
+  reserved: boolean
   reason: string
+}
+
+// The outcome of claiming a port. `warning` is for things worth saying but not worth
+// refusing over (something is already listening on it, for instance).
+export interface PortClaimResult {
+  project: Project
+  claim: PortClaim
+  warning: string | null
+}
+
+// Detection reads a project's own config; some of what it finds may be unclaimable.
+export interface PortDetectResult {
+  project: Project
+  claimed: PortClaim[]
+  skipped: Array<{ port: number; source: string; reason: string }>
 }
 
 // ---- Git diff ----

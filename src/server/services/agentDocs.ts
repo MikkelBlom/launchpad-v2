@@ -33,11 +33,13 @@ Every \`launchpad\` command run inside this folder targets project #${project.id
 Write back with \`launchpad task add "…"\`, \`launchpad idea add "…"\`, \`launchpad note add "…"\`,
 \`launchpad set description "…"\`, \`launchpad tag add <name>\`, or a batch \`launchpad push plan.json\`.
 
-**Dev server port.** ${
-    project.devPort
-      ? `This project runs on **http://localhost:${project.devPort}**. Use that port when you start or configure its dev server — don't invent a new one.`
-      : `This project has no port claimed yet. Before configuring a dev server, run \`launchpad ports free\` to get ports that are actually available, pick one, and claim it with \`launchpad set port <n>\` so it shows up in Launchpad and nothing else takes it.`
-  } Never assume 3000, 3001 or 5000 are free — they are already taken on this machine.
+**Dev server ports.** ${
+    project.ports.length > 0
+      ? `This project runs on ${project.ports
+          .map((claim) => `**http://localhost:${claim.port}**${claim.label ? ` (${claim.label})` : ''}`)
+          .join(' and ')}. Use ${project.ports.length > 1 ? 'those ports' : 'that port'} when you start or configure its dev server${project.ports.length > 1 ? 's' : ''} — don't invent a new one. A process this project runs that isn't listed above needs its own claim: \`launchpad ports add <n> --label "<what it is>"\`.`
+      : `This project has no port claimed yet. Before configuring a dev server, run \`launchpad ports free\` to get ports that are actually available, pick one, and claim it with \`launchpad ports add <n>\` so it shows up in Launchpad and nothing else takes it. One claim per process the project runs.`
+  } A port another project already claims is refused — ask for another rather than forcing it. Never assume 3000, 3001 or 5000 are free: they are permanently taken on this machine.
 
 \`ai-instructions/LAUNCHPAD.md\` is a **read-only mirror** — editing it changes nothing.
 Agents archive rather than delete; nothing you do here is unrecoverable.
@@ -66,8 +68,9 @@ Push is merge-only and idempotent — it never deletes, and re-running it update
 duplicating. Archive instead of deleting.
 
 If this project runs a dev server, also claim its port: \`launchpad ports free\` to see what is
-actually available, then \`launchpad set port <n> --project ${project.id}\`. 3000/3001/5000 are
-already taken on this machine.`
+actually available, then \`launchpad ports add <n> --project ${project.id}\` — once per process it
+runs, with \`--label\` to say which is which. 3000/3001/5000 are already taken on this machine, and
+a port another project holds is refused.`
 }
 
 export interface WriteInstructionsResult {

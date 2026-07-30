@@ -8,6 +8,7 @@ const TABLES = [
   'tags',
   'projects',
   'project_tags',
+  'project_ports',
   'notes',
   'ideas',
   'tasks',
@@ -31,7 +32,9 @@ export function exportAll(exportedAt: string): BackupData {
       Record<string, unknown>
     >
   }
-  return { version: 3, exportedAt, tables }
+  // 4 — includes `project_ports`. Anything older carries a project's single port in the
+  // legacy `projects.dev_port` columns instead; see importAll.
+  return { version: 4, exportedAt, tables }
 }
 
 export function importAll(data: BackupData): { restored: Record<string, number> } {
@@ -58,6 +61,22 @@ export function importAll(data: BackupData): { restored: Record<string, number> 
           ...(cols.map((c) => row[c]) as never[])
         )
       }
+    }
+    // A backup older than version 4 has no `project_ports` — it carries each project's
+    // single port in the legacy columns instead. Without this the restore would look
+    // successful and quietly leave every project portless. Gated on the backup's version,
+    // not on the table being empty: a current backup of a database where every port was
+    // deliberately released is also empty, and must stay that way.
+    if ((data.version ?? 0) < 4) {
+      const seeded = db
+        .prepare(
+          `INSERT INTO project_ports (project_id, port, label, source, sort, created_at)
+           SELECT id, dev_port, '', COALESCE(NULLIF(dev_port_source, ''), 'manual'), 0, created_at
+           FROM projects
+           WHERE dev_port IS NOT NULL`
+        )
+        .run()
+      restored.project_ports = Number(seeded.changes)
     }
     db.exec('COMMIT')
   } catch (error) {

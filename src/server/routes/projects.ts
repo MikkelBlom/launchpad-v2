@@ -86,6 +86,15 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/projects/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     const patch = (req.body ?? {}) as Record<string, unknown>
+    // Ports are not a project field. Letting them through here would be a way to write an
+    // unvalidated claim — a reserved port, a port another project holds, or a string that
+    // looks like a number and then never matches one.
+    if ('devPort' in patch || 'devPortSource' in patch || 'ports' in patch) {
+      return reply.code(400).send({
+        error:
+          'Dev ports are claimed, not patched. Use POST /api/projects/:id/ports (or DELETE /api/projects/:id/ports/:port).'
+      })
+    }
     const project = updateProject(id, patch)
     if (!project) return reply.code(404).send({ error: 'Project not found' })
     recordChange({

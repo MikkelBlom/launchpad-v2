@@ -55,6 +55,10 @@ A single background service (Node + TypeScript + Fastify) that:
 - **Batch push is merge-only and idempotent.** Match by normalized title, update in place, never
   remove. If you touch `services/agentPush.ts`, keep dry-run on the same code path (transaction
   + rollback) so the preview cannot drift from the apply.
+- **A port claim is validated where it is written, not where it is displayed.** Every write to
+  `project_ports` goes through `assertClaimable` in `services/ports.ts`: reserved ports are
+  refused outright, another project's port needs `--force`. An advisory check that a caller may
+  ignore is not a check — that is exactly how three projects ended up holding 3000.
 
 ## Architecture
 

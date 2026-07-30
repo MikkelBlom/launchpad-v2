@@ -14,7 +14,9 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     ok: true,
     service: 'launchpad',
     port: getPort(),
-    apiVersion: 4
+    // 5 — a project claims many ports (`project_ports`); /api/ports returns claims, not
+    // one row per project, and claiming refuses reserved/taken ports.
+    apiVersion: 5
   }))
 
   app.get('/settings', async () => getSettings())

@@ -3,8 +3,25 @@ import { closeSync, existsSync, openSync, readSync } from 'node:fs'
 import { createServer as createProbeServer } from 'node:net'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { getProject, listProjects, updateProject } from '../repo/projects.ts'
-import type { PortCheck, PortOverview, Project, ProjectPort } from '../../shared/types.ts'
+import {
+  deleteAllPorts,
+  deletePort,
+  findClaim,
+  listAllPorts,
+  reorderPorts,
+  upsertPort
+} from '../repo/projectPorts.ts'
+import { getProject, listProjects } from '../repo/projects.ts'
+import type {
+  PortCheck,
+  PortClaim,
+  PortClaimResult,
+  PortClaimRow,
+  PortDetectResult,
+  PortOverview,
+  PortSuggestion,
+  Project
+} from '../../shared/types.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -126,89 +143,103 @@ function readHead(file: string): string | null {
   }
 }
 
+// Readers return every port their file declares, in the order the file declares them: a
+// project that runs several processes says so in one place (a compose file with two
+// published mappings, a launch.json with two configurations), and claiming one of them and
+// silently dropping the rest is how a project ends up half-registered.
+function unique(ports: Array<number | null>): number[] {
+  return [...new Set(ports.filter((port): port is number => port !== null))]
+}
+
 // `.claude/launch.json` — the convention this repo itself uses.
-function fromLaunchJson(text: string): number | null {
+function fromLaunchJson(text: string): number[] {
   try {
     const data = JSON.parse(text) as { port?: unknown; configurations?: Array<{ port?: unknown }> }
-    const direct = sanePort(data.port)
-    if (direct !== null) return direct
-    for (const config of data.configurations ?? []) {
-      const port = sanePort(config?.port)
-      if (port !== null) return port
-    }
+    return unique([
+      sanePort(data.port),
+      ...(data.configurations ?? []).map((config) => sanePort(config?.port))
+    ])
   } catch {
     /* a malformed launch.json is the same as no launch.json */
+    return []
   }
-  return null
 }
 
 // Only a `port` inside a `server: { … }` block counts — a bare `port:` anywhere in a Vite
 // config is as likely to be a proxy target as the dev server's own port.
-function fromViteConfig(text: string): number | null {
+function fromViteConfig(text: string): number[] {
   const start = text.search(/\bserver\s*:\s*\{/)
-  if (start === -1) return null
+  if (start === -1) return []
   const match = text.slice(start, start + 600).match(/\bport\s*:\s*(\d{2,5})/)
-  return match ? sanePort(match[1]) : null
+  return unique([match ? sanePort(match[1]) : null])
 }
 
 const SCRIPT_PORT = /(?:--port[=\s]+|(?:^|\s)-p[=\s]+|(?:^|\s)PORT=)(\d{2,5})/
 
-// Scripts are checked in the order a dev server is most likely to live in them.
-const SCRIPT_NAMES = ['dev', 'start', 'serve', 'dev:web', 'web', 'preview']
+// Scripts are checked in the order a dev server is most likely to live in them. A repo with
+// both `dev:web --port 5173` and `dev:api --port 8081` really does hold two ports.
+const SCRIPT_NAMES = ['dev', 'start', 'serve', 'dev:web', 'web', 'dev:api', 'api', 'server', 'preview']
 
-function fromPackageJson(text: string): number | null {
+function fromPackageJson(text: string): number[] {
   let scripts: Record<string, string> = {}
   try {
     scripts = (JSON.parse(text) as { scripts?: Record<string, string> }).scripts ?? {}
   } catch {
-    return null
+    return []
   }
-  for (const name of SCRIPT_NAMES) {
-    const match = (scripts[name] ?? '').match(SCRIPT_PORT)
-    const port = match ? sanePort(match[1]) : null
-    if (port !== null) return port
-  }
-  return null
+  return unique(
+    SCRIPT_NAMES.map((name) => {
+      const match = (scripts[name] ?? '').match(SCRIPT_PORT)
+      return match ? sanePort(match[1]) : null
+    })
+  )
 }
 
-function fromNextConfig(text: string): number | null {
+function fromNextConfig(text: string): number[] {
   const match = text.match(/\bport\s*:\s*(\d{2,5})/)
-  return match ? sanePort(match[1]) : null
+  return unique([match ? sanePort(match[1]) : null])
 }
 
-function fromEnvFile(text: string): number | null {
-  const match = text.match(/^\s*(?:export\s+)?PORT\s*=\s*["']?(\d{2,5})/m)
-  return match ? sanePort(match[1]) : null
+// Only variables that unambiguously name *this app's* listening port. DB_PORT=5432 and
+// REDIS_PORT=6379 are things the app connects to, not ports it holds, and claiming them
+// would put someone else's service in Launchpad under this project's name.
+const ENV_PORT_NAMES = ['PORT', 'API_PORT', 'SERVER_PORT', 'WEB_PORT', 'CLIENT_PORT', 'APP_PORT']
+
+function fromEnvFile(text: string): number[] {
+  return unique(
+    ENV_PORT_NAMES.map((name) => {
+      const match = text.match(new RegExp(`^\\s*(?:export\\s+)?${name}\\s*=\\s*["']?(\\d{2,5})`, 'm'))
+      return match ? sanePort(match[1]) : null
+    })
+  )
 }
 
 // A published mapping (`- "8080:80"`, `- 127.0.0.1:8080:80`) — the host side is the one a
 // browser connects to. An unpublished `expose:` entry is deliberately ignored.
 const COMPOSE_MAPPING = /^\s*-\s*["']?(?:\d{1,3}(?:\.\d{1,3}){3}:)?(\d{2,5}):\d{2,5}(?:\/\w+)?["']?\s*$/gm
 
-function fromCompose(text: string): number | null {
-  for (const match of text.matchAll(COMPOSE_MAPPING)) {
-    const port = sanePort(match[1])
-    if (port !== null) return port
-  }
-  return null
+function fromCompose(text: string): number[] {
+  return unique([...text.matchAll(COMPOSE_MAPPING)].map((match) => sanePort(match[1])))
 }
 
-// dotnet's launchSettings.json lists applicationUrls; prefer the plain-http one.
-function fromLaunchSettings(text: string): number | null {
-  let httpsPort: number | null = null
+// dotnet's launchSettings.json lists applicationUrls; prefer the plain-http ones and fall
+// back to https only when the file offers nothing else.
+function fromLaunchSettings(text: string): number[] {
+  const http: Array<number | null> = []
+  const https: Array<number | null> = []
   for (const match of text.matchAll(/(https?):\/\/(?:localhost|127\.0\.0\.1):(\d{2,5})/g)) {
-    const port = sanePort(match[2])
-    if (port === null) continue
-    if (match[1] === 'http') return port
-    httpsPort ??= port
+    ;(match[1] === 'http' ? http : https).push(sanePort(match[2]))
   }
-  return httpsPort
+  const plain = unique(http)
+  return plain.length > 0 ? plain : unique(https)
 }
 
 // Most trustworthy first: the first file that yields a plausible port wins, and its name
-// becomes the recorded source. A wrong guess is worse than none, so every reader below
-// only accepts a port it found in an unambiguous position.
-const DETECTORS: Array<{ file: string; read: (text: string) => number | null }> = [
+// becomes the recorded source. A wrong guess is worse than none, so every reader above
+// only accepts a port it found in an unambiguous position — and one file's word is taken
+// whole rather than merged with the next file's, which would mix a real port with a stale
+// one left in some config nobody uses any more.
+const DETECTORS: Array<{ file: string; read: (text: string) => number[] }> = [
   { file: '.claude/launch.json', read: fromLaunchJson },
   { file: 'vite.config.ts', read: fromViteConfig },
   { file: 'vite.config.js', read: fromViteConfig },
@@ -229,59 +260,83 @@ const DETECTORS: Array<{ file: string; read: (text: string) => number | null }> 
 ]
 
 export interface PortDetection {
-  port: number | null
+  ports: number[]
   source: string | null
 }
 
-export function detectDevPort(projectPath: string): PortDetection {
-  if (!projectPath || !existsSync(projectPath)) return { port: null, source: null }
+// A config file with a dozen published ports is describing infrastructure, not a dev
+// server; stopping at six keeps a runaway compose file from filling the ports page.
+const MAX_DETECTED = 6
+
+export function detectDevPorts(projectPath: string): PortDetection {
+  if (!projectPath || !existsSync(projectPath)) return { ports: [], source: null }
   for (const detector of DETECTORS) {
     const file = join(projectPath, ...detector.file.split('/'))
     if (!existsSync(file)) continue
     const text = readHead(file)
     if (text === null) continue
-    const port = detector.read(text)
-    if (port !== null) return { port, source: detector.file }
+    const ports = detector.read(text)
+    if (ports.length > 0) return { ports: ports.slice(0, MAX_DETECTED), source: detector.file }
   }
-  return { port: null, source: null }
+  return { ports: [], source: null }
 }
 
 // ---- Claims, conflicts, suggestions ----
 
-function claimedPorts(): Map<number, string[]> {
+// Project names indexed by the port they claim. Built from `project_ports`, so a project
+// holding four ports appears under all four.
+function claimantsByPort(): Map<number, string[]> {
+  const names = new Map<number, string>(listProjects().map((project) => [project.id, project.name]))
   const byPort = new Map<number, string[]>()
-  for (const project of listProjects()) {
-    if (project.devPort === null) continue
-    const names = byPort.get(project.devPort) ?? []
-    names.push(project.name)
-    byPort.set(project.devPort, names)
+  for (const claim of listAllPorts()) {
+    const name = names.get(claim.projectId)
+    if (name === undefined) continue
+    byPort.set(claim.port, [...(byPort.get(claim.port) ?? []), name])
   }
   return byPort
 }
 
 export function projectsClaiming(port: number, exceptProjectId?: number): string[] {
-  return listProjects()
-    .filter((p) => p.devPort === port && p.id !== exceptProjectId)
-    .map((p) => p.name)
+  const names = new Map<number, string>(listProjects().map((project) => [project.id, project.name]))
+  return listAllPorts()
+    .filter((claim) => claim.port === port && claim.projectId !== exceptProjectId)
+    .map((claim) => names.get(claim.projectId) ?? `#${claim.projectId}`)
 }
 
 // Free ports, ascending. Excludes anything listening, anything a project already claims,
-// and the reserved set — then confirms each candidate is genuinely bindable before
-// offering it, since the OS can hold a port without listening on it.
-export async function suggestPorts(count = 3): Promise<number[]> {
+// and the reserved set — then confirms each candidate is genuinely bindable before offering
+// it, since the OS can hold a port without listening on it.
+//
+// What it skipped is returned alongside the answer. "Is this list only looking at what's
+// listening?" is the first thing anyone asks of a free-port list, and the only convincing
+// reply is the arithmetic.
+export async function suggestPorts(count = 3): Promise<PortSuggestion> {
   const wanted = Math.min(Math.max(Math.trunc(count) || 3, 1), 20)
   const listening = new Set(await readListeningPorts())
-  const claimed = claimedPorts()
-  const found: number[] = []
-  for (let port = SUGGEST_FROM; port <= SUGGEST_TO && found.length < wanted; port++) {
-    if (RESERVED_PORTS.has(port) || listening.has(port) || claimed.has(port)) continue
-    if (!(await isPortAvailable(port))) continue
-    found.push(port)
+  const claimed = claimantsByPort()
+  const result: PortSuggestion = {
+    ports: [],
+    skipped: { claimed: [], listening: [], reserved: [] }
   }
-  return found
+  for (let port = SUGGEST_FROM; port <= SUGGEST_TO && result.ports.length < wanted; port++) {
+    if (RESERVED_PORTS.has(port)) {
+      result.skipped.reserved.push(port)
+      continue
+    }
+    if (claimed.has(port)) {
+      result.skipped.claimed.push(port)
+      continue
+    }
+    if (listening.has(port) || !(await isPortAvailable(port))) {
+      result.skipped.listening.push(port)
+      continue
+    }
+    result.ports.push(port)
+  }
+  return result
 }
 
-export async function checkPort(port: number): Promise<PortCheck> {
+export async function checkPort(port: number, forProjectId?: number): Promise<PortCheck> {
   const valid = sanePort(port)
   if (valid === null) {
     return {
@@ -289,23 +344,39 @@ export async function checkPort(port: number): Promise<PortCheck> {
       available: false,
       listening: false,
       claimedBy: null,
+      reserved: false,
       reason: `A dev port must be a whole number between ${MIN_PORT} and ${MAX_PORT}.`
     }
   }
 
   const listening = (await readListeningPorts()).includes(valid)
-  const claimedBy = claimedPorts().get(valid)?.join(', ') ?? null
+  const claimants = claimantsByPort().get(valid) ?? []
+  const claimedBy = claimants.length > 0 ? claimants.join(', ') : null
+  const others = forProjectId === undefined ? claimants : projectsClaiming(valid, forProjectId)
+  const reserved = RESERVED_PORTS.has(valid)
 
-  if (RESERVED_PORTS.has(valid)) {
+  if (reserved) {
     return {
       port: valid,
       available: false,
       listening,
       claimedBy,
+      reserved,
       reason:
         valid === 7420 || valid === 7421
           ? `Port ${valid} belongs to Launchpad itself — pick another.`
           : `Port ${valid} is permanently in use on this machine — pick another.`
+    }
+  }
+
+  if (others.length > 0) {
+    return {
+      port: valid,
+      available: false,
+      listening,
+      claimedBy,
+      reserved,
+      reason: `Port ${valid} is already claimed by ${quoteList(others)} — pick another.`
     }
   }
 
@@ -315,6 +386,7 @@ export async function checkPort(port: number): Promise<PortCheck> {
       available: false,
       listening,
       claimedBy,
+      reserved,
       reason: claimedBy
         ? `Something is listening on ${valid}; "${claimedBy}" claims it, so it is probably already running.`
         : `Something is already listening on ${valid}, but no Launchpad project claims it.`
@@ -327,17 +399,8 @@ export async function checkPort(port: number): Promise<PortCheck> {
       available: false,
       listening,
       claimedBy,
+      reserved,
       reason: `Port ${valid} cannot be bound — the OS or another process is holding it.`
-    }
-  }
-
-  if (claimedBy) {
-    return {
-      port: valid,
-      available: false,
-      listening,
-      claimedBy,
-      reason: `Port ${valid} is free right now, but "${claimedBy}" already claims it — pick another.`
     }
   }
 
@@ -346,8 +409,15 @@ export async function checkPort(port: number): Promise<PortCheck> {
     available: true,
     listening,
     claimedBy,
-    reason: `Port ${valid} is free and unclaimed.`
+    reserved,
+    reason: claimedBy
+      ? `Port ${valid} is free, and this project already claims it.`
+      : `Port ${valid} is free and unclaimed.`
   }
+}
+
+function quoteList(names: string[]): string {
+  return names.map((name) => `"${name}"`).join(', ')
 }
 
 // ---- Overview ----
@@ -356,72 +426,187 @@ export async function checkPort(port: number): Promise<PortCheck> {
 // show up — an invisible claim is exactly the sort of conflict this page exists to explain.
 export async function buildPortOverview(): Promise<PortOverview> {
   const projects = listProjects()
+  const byId = new Map(projects.map((project) => [project.id, project]))
   const listening = await readListeningPorts()
   const listeningSet = new Set(listening)
-  const byPort = claimedPorts()
+  const byPort = claimantsByPort()
 
-  const rows: ProjectPort[] = projects
-    .filter((project) => project.status !== 'archived' || project.devPort !== null)
-    .map((project) => ({
-      projectId: project.id,
-      name: project.name,
-      devPort: project.devPort,
-      devPortSource: project.devPortSource,
-      url: devUrl(project.devPort),
-      listening: project.devPort !== null && listeningSet.has(project.devPort),
-      conflictsWith:
-        project.devPort === null
-          ? []
-          : (byPort.get(project.devPort) ?? []).filter((name) => name !== project.name)
-    }))
-    .sort((a, b) => {
-      if (a.devPort !== null && b.devPort !== null) return a.devPort - b.devPort
-      if (a.devPort !== null) return -1
-      if (b.devPort !== null) return 1
-      return a.name.localeCompare(b.name)
+  const claims: PortClaimRow[] = listAllPorts()
+    .filter((claim) => byId.has(claim.projectId))
+    .map((claim) => {
+      const project = byId.get(claim.projectId)!
+      return {
+        ...claim,
+        projectName: project.name,
+        url: `http://localhost:${claim.port}`,
+        listening: listeningSet.has(claim.port),
+        reserved: RESERVED_PORTS.has(claim.port),
+        conflictsWith: (byPort.get(claim.port) ?? []).filter((name) => name !== project.name)
+      }
     })
+    .sort((a, b) => a.port - b.port || a.projectName.localeCompare(b.projectName))
 
-  return { projects: rows, listening, suggested: await suggestPorts(3) }
+  const unclaimed = projects
+    .filter((project) => project.status !== 'archived' && project.ports.length === 0)
+    .map((project) => ({ projectId: project.id, name: project.name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  return { claims, unclaimed, listening, suggested: (await suggestPorts(3)).ports }
 }
 
 // ---- Writes ----
 
-export function setProjectPort(
-  projectId: number,
-  port: number | null,
-  source = 'manual'
-): Project {
+export interface ClaimOptions {
+  label?: string
+  source?: string
+  // Take a port another project already claims. Never overrides a reserved port: those are
+  // taken by something outside Launchpad, so forcing one produces a claim that cannot work.
+  force?: boolean
+}
+
+// The one gate every write goes through. Claiming used to be advisory — `checkPort` knew a
+// port was reserved or taken, the caller printed the warning, and the claim was written
+// anyway. That is how three projects ended up holding 3000.
+function assertClaimable(project: Project, port: number, force: boolean): void {
+  if (RESERVED_PORTS.has(port)) {
+    throw new PortError(
+      port === 7420 || port === 7421
+        ? `Port ${port} belongs to Launchpad itself — pick another (launchpad ports free).`
+        : `Port ${port} is permanently in use on this machine — pick another (launchpad ports free).`
+    )
+  }
+  const others = projectsClaiming(port, project.id)
+  if (others.length > 0 && !force) {
+    throw new PortError(
+      `Port ${port} is already claimed by ${quoteList(others)}. ` +
+        `Run \`launchpad ports free\` for one that isn't, or pass --force if they really do share it.`,
+      409
+    )
+  }
+}
+
+function requireProject(projectId: number): Project {
   const project = getProject(projectId)
   if (!project) throw new PortError('Project not found', 404)
-  if (port === null) {
-    return updateProject(projectId, { devPort: null, devPortSource: null })!
-  }
+  return project
+}
+
+function requirePort(port: unknown): number {
   const valid = sanePort(port)
   if (valid === null) {
     throw new PortError(
       `A dev port must be a whole number between ${MIN_PORT} and ${MAX_PORT} — got "${String(port)}".`
     )
   }
-  return updateProject(projectId, { devPort: valid, devPortSource: source })!
+  return valid
 }
 
-export interface DetectResult extends PortDetection {
-  project: Project
+// Add one port to a project's claims, leaving its other claims alone.
+export async function claimPort(
+  projectId: number,
+  port: unknown,
+  options: ClaimOptions = {}
+): Promise<PortClaimResult> {
+  const project = requireProject(projectId)
+  const valid = requirePort(port)
+  assertClaimable(project, valid, options.force === true)
+
+  const claim = upsertPort({
+    projectId,
+    port: valid,
+    label: options.label,
+    source: options.source ?? 'manual'
+  })
+
+  // Worth saying, not worth refusing over: it may well be this project's own dev server
+  // already running, and Launchpad has no way to tell whose socket it is.
+  const others = projectsClaiming(valid, projectId)
+  const listening = (await readListeningPorts(true)).includes(valid)
+  const warning =
+    others.length > 0
+      ? `${quoteList(others)} also claims ${valid} — one of you has to move.`
+      : listening
+        ? `Something is already listening on ${valid}. If that isn't this project, pick another port.`
+        : null
+
+  return { project: getProject(projectId)!, claim, warning }
 }
 
-// Detection is only stored when it found something: a project whose config says nothing
-// keeps whatever port was claimed by hand.
-export function detectAndStorePort(projectId: number): DetectResult {
-  const project = getProject(projectId)
-  if (!project) throw new PortError('Project not found', 404)
+export function releasePort(projectId: number, port: unknown): Project {
+  const project = requireProject(projectId)
+  const valid = requirePort(port)
+  if (!deletePort(projectId, valid)) {
+    throw new PortError(`"${project.name}" does not claim port ${valid}.`, 404)
+  }
+  return getProject(projectId)!
+}
+
+export function releaseAllPorts(projectId: number): Project {
+  requireProject(projectId)
+  deleteAllPorts(projectId)
+  return getProject(projectId)!
+}
+
+// Replace a project's whole set of claims with a single port — the old one-port-per-project
+// behaviour, kept because `launchpad set port <n>` still means exactly that.
+export async function setProjectPort(
+  projectId: number,
+  port: number | null,
+  options: ClaimOptions = {}
+): Promise<PortClaimResult | { project: Project; claim: null; warning: null }> {
+  const project = requireProject(projectId)
+  if (port === null) {
+    deleteAllPorts(projectId)
+    return { project: getProject(projectId)!, claim: null, warning: null }
+  }
+  const valid = requirePort(port)
+  assertClaimable(project, valid, options.force === true)
+  // Validated before anything is dropped, so a refused claim leaves the project as it was.
+  deleteAllPorts(projectId)
+  return claimPort(projectId, valid, options)
+}
+
+export function setPortOrder(projectId: number, ports: number[]): Project {
+  requireProject(projectId)
+  reorderPorts(projectId, ports)
+  return getProject(projectId)!
+}
+
+export function setPortLabel(projectId: number, port: unknown, label: string): PortClaim {
+  const project = requireProject(projectId)
+  const valid = requirePort(port)
+  const existing = findClaim(projectId, valid)
+  if (!existing) throw new PortError(`"${project.name}" does not claim port ${valid}.`, 404)
+  return upsertPort({ projectId, port: valid, label, source: existing.source })
+}
+
+// Read the project's own config and claim everything it declares that is actually
+// claimable. A port the config names but Launchpad refuses (reserved, or held by another
+// project) is reported rather than stored — silently recording it is what put three
+// projects on 3000, each of them "detected" from its own launch.json.
+export async function detectAndStorePorts(projectId: number): Promise<PortDetectResult> {
+  const project = requireProject(projectId)
   if (!project.pathExists) {
     throw new PortError(`"${project.name}"'s folder is missing: ${project.path}`)
   }
-  const detection = detectDevPort(project.path)
-  if (detection.port === null) return { ...detection, project }
-  const updated = updateProject(projectId, {
-    devPort: detection.port,
-    devPortSource: detection.source
-  })!
-  return { ...detection, project: updated }
+
+  const detection = detectDevPorts(project.path)
+  const claimed: PortClaim[] = []
+  const skipped: PortDetectResult['skipped'] = []
+
+  for (const port of detection.ports) {
+    const source = detection.source ?? 'detected'
+    try {
+      assertClaimable(project, port, false)
+      claimed.push(upsertPort({ projectId, port, source }))
+    } catch (error) {
+      skipped.push({
+        port,
+        source,
+        reason: error instanceof PortError ? error.message : String(error)
+      })
+    }
+  }
+
+  return { project: getProject(projectId)!, claimed, skipped }
 }

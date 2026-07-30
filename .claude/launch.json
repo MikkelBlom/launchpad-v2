@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "web"],
       "port": 7421
+    },
+    {
+      "name": "launchpad-web-scratch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "web:scratch"],
+      "port": 7422
     }
   ]
 }

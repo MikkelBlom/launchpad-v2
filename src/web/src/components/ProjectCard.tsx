@@ -89,9 +89,11 @@ export function ProjectCard({
         )}
         {project.git.dirty && <Badge className="bg-amber-100 text-amber-700">uncommitted</Badge>}
         {project.liveUrl && <Badge className="bg-brand-soft text-brand-strong">live</Badge>}
-        {project.devPort && (
-          <Badge className="bg-surface-2 font-mono text-ink-soft">:{project.devPort}</Badge>
-        )}
+        {project.ports.map((claimed) => (
+          <Badge key={claimed.port} className="bg-surface-2 font-mono text-ink-soft">
+            :{claimed.port}
+          </Badge>
+        ))}
         {!project.pathExists && (
           <span title={project.path}>
             <Badge className="bg-rose-100 text-rose-700">folder missing</Badge>
@@ -116,7 +118,14 @@ export function ProjectCard({
             <IconButton title="Open on GitHub" onClick={() => guard(() => api.openGithub(project.id), 'Opening GitHub…')}><IconGithub /></IconButton>
           )}
           {project.devPort && (
-            <IconButton title={`Open localhost:${project.devPort}`} onClick={() => guard(() => api.openDev(project.id), `Opening localhost:${project.devPort}…`)}><IconServer /></IconButton>
+            <IconButton
+              title={
+                project.ports.length > 1
+                  ? `Open localhost:${project.devPort} (primary of ${project.ports.length})`
+                  : `Open localhost:${project.devPort}`
+              }
+              onClick={() => guard(() => api.openDev(project.id), `Opening localhost:${project.devPort}…`)}
+            ><IconServer /></IconButton>
           )}
           {project.liveUrl && (
             <IconButton title={`Open live site — ${project.liveUrl}`} onClick={() => guard(() => api.openLive(project.id), 'Opening live site…')}><IconGlobe /></IconButton>

@@ -318,5 +318,26 @@ killing the `npm run stop` shell itself, or a neighbouring project's dev server.
 - `item_tags` is polymorphic, so SQLite can't foreign-key it to the item. The repos call
   `clearItemTags` on delete; any new item kind must do the same or tags will leak onto a later
   row with the same id.
-- Backup/restore covers `item_tags` and `changes` (backup `version: 3`). Restoring a v2 backup
-  is safe — missing tables just restore empty.
+- Backup/restore covers `item_tags` and `changes` (backup `version: 4`). Restoring a v2 backup
+  is safe — missing tables just restore empty. The one exception is ports: a backup older than
+  version 4 has no `project_ports`, so `importAll` rebuilds claims from the legacy
+  `projects.dev_port` columns. That backfill is gated on the backup's **version**, not on the
+  table being empty — a current backup of a database where every port was deliberately released
+  is also empty and must stay that way.
+- **Ports are claimed, never patched.** `project_ports` is the only source of truth;
+  `projects.dev_port`/`dev_port_source` survive as a pre-v6 leftover that only the backup
+  backfill reads, and `UpdateProjectInput` deliberately has no port fields so a generic PATCH
+  cannot walk around `assertClaimable`. If you add another write path to ports, route it through
+  that function or you will reintroduce the bug where three projects held 3000.
+- `project_ports` is unique on `(project_id, port)` and **not** on `port`. Two projects claiming
+  one port is a state the app must be able to display and the user must be able to fix; refusing
+  *new* collisions is the service's job. A unique index on `port` would also have made migration
+  v6 fail on the live database, which already had three projects on 3000.
+- The CLI sends `Connection: close` and ends errors with `process.exitCode = 1` rather than
+  `exit(1)`. Both exist for the same reason: on Windows, exiting with a keep-alive socket still
+  open makes libuv abort *after* the error is printed, turning exit 1 into 127. Don't "tidy" it
+  back into a hard exit — agents read that code.
+- Testing anything port-related means a second service on a copied `LAUNCHPAD_DATA_DIR`. The UI
+  can reach it: `npm run web:scratch` (Vite on **7422**, proxying to **7439**), which is why
+  `vite.config.ts` reads `LAUNCHPAD_API_PORT`. Port 7422 keeps it from being mistaken for the
+  real dev window on 7421.

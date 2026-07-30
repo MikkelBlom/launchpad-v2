@@ -244,11 +244,21 @@ export function ProjectDetail({
           ) : (
             <Button variant="ghost" onClick={() => setLiveOpen(true)}><IconGlobe /> Add live site</Button>
           )}
-          {project.devPort ? (
-            <div className="group inline-flex items-center">
-              <Button variant="subtle" title={`http://localhost:${project.devPort}`} onClick={() => guard(() => api.openDev(project.id), `Opening localhost:${project.devPort}…`)}>
-                <IconServer /> localhost:{project.devPort}
-              </Button>
+          {/* One button per claimed port: a project running a web server and an API is two
+              clicks, not one click and a guess about which port opened. */}
+          {project.ports.length > 0 ? (
+            <div className="group inline-flex items-center gap-1.5">
+              {project.ports.map((claimed) => (
+                <Button
+                  key={claimed.port}
+                  variant="subtle"
+                  title={`http://localhost:${claimed.port}${claimed.label ? ` — ${claimed.label}` : ''}`}
+                  onClick={() => guard(() => api.openDev(project.id, claimed.port), `Opening localhost:${claimed.port}…`)}
+                >
+                  <IconServer /> localhost:{claimed.port}
+                  {claimed.label && <span className="text-ink-faint">· {claimed.label}</span>}
+                </Button>
+              ))}
               <IconButton title="Dev port settings" className="h-7 w-7 opacity-0 group-hover:opacity-100" onClick={() => setPortOpen(true)}><IconEdit width={13} height={13} /></IconButton>
             </div>
           ) : (
@@ -318,9 +328,10 @@ export function ProjectDetail({
   )
 }
 
-// ---------- Dev server port ----------
-// Which localhost this project runs on. The port can be detected from the project's own
-// config files, claimed from Launchpad's free-port suggestions, or typed in.
+// ---------- Dev server ports ----------
+// Which localhost(s) this project runs on — one claim per process it starts. Ports can be
+// detected from the project's own config files, claimed from Launchpad's free-port
+// suggestions, or typed in. The first claim is the primary one.
 function DevPortModal({
   project,
   onClose,
@@ -330,7 +341,8 @@ function DevPortModal({
   onClose: () => void
   onChanged: () => void
 }) {
-  const [value, setValue] = useState(project.devPort ? String(project.devPort) : '')
+  const [value, setValue] = useState('')
+  const [label, setLabel] = useState('')
   const [busy, setBusy] = useState(false)
   const [check, setCheck] = useState<PortCheck | null>(null)
   const [suggested, setSuggested] = useState<number[]>([])
@@ -349,7 +361,8 @@ function DevPortModal({
     }
   }
 
-  // Check availability as the user types, but only once the number looks plausible.
+  // Check availability as the user types, but only once the number looks plausible. The
+  // project's own id goes along so a port it already holds doesn't read as a conflict.
   useEffect(() => {
     const port = Number(value)
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
@@ -358,40 +371,99 @@ function DevPortModal({
     }
     let cancelled = false
     const timer = setTimeout(() => {
-      api.checkPort(port).then((r) => { if (!cancelled) setCheck(r) }).catch(() => setCheck(null))
+      api.checkPort(port, project.id).then((r) => { if (!cancelled) setCheck(r) }).catch(() => setCheck(null))
     }, 300)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [value])
+  }, [value, project.id])
 
   useEffect(() => { api.suggestPorts(4).then((r) => setSuggested(r.ports)).catch(() => setSuggested([])) }, [])
 
-  const save = () =>
-    run(() => api.setPort(project.id, value.trim() ? Number(value) : null), 'Dev port saved')
+  // Claiming can be refused (reserved port, or another project holds it); the server's
+  // sentence is the whole explanation, so it is shown as-is.
+  const claim = () =>
+    run(async () => {
+      const port = Number(value)
+      if (!Number.isInteger(port)) {
+        toast('Enter a port number', 'error')
+        return
+      }
+      const result = await api.claimPort(project.id, port, { label: label.trim() || undefined })
+      setValue('')
+      setLabel('')
+      toast(result.warning ?? `Claimed ${port}`, result.warning ? 'error' : 'ok')
+    })
+
+  const release = (port: number) => run(() => api.releasePort(project.id, port), 'Port released')
+
+  const makePrimary = (port: number) =>
+    run(() => api.orderPorts(project.id, [port]), 'Primary port changed')
 
   const detect = () =>
     run(async () => {
       const result = await api.detectPort(project.id)
-      if (!result.port) {
-        toast('Nothing found in this project’s config — pick one below.', 'error')
+      if (result.claimed.length === 0) {
+        toast(
+          result.skipped[0]?.reason ?? 'Nothing found in this project’s config — pick one below.',
+          'error'
+        )
         return
       }
-      setValue(String(result.port))
-      toast(`Found port ${result.port} in ${result.source}`)
+      toast(
+        `Claimed ${result.claimed.map((c) => c.port).join(', ')} from ${result.claimed[0].source}`
+      )
     })
 
   return (
-    <Modal title="Dev server port" onClose={onClose}>
-      <label className="mb-1 block text-sm font-medium text-ink-soft">Port</label>
+    <Modal title="Dev server ports" onClose={onClose}>
+      {project.ports.length > 0 && (
+        <div className="mb-4 divide-y divide-line overflow-hidden rounded-xl border border-line">
+          {project.ports.map((claimed, index) => (
+            <div key={claimed.port} className="flex items-center gap-2 px-3 py-2">
+              <code className="font-mono text-sm text-ink">localhost:{claimed.port}</code>
+              {claimed.label && <Badge className="bg-brand-soft text-brand-strong">{claimed.label}</Badge>}
+              {index === 0 ? (
+                <Badge className="bg-surface-2 text-ink-faint">primary</Badge>
+              ) : (
+                <button
+                  className="text-xs text-ink-faint underline-offset-2 hover:text-brand hover:underline"
+                  disabled={busy}
+                  onClick={() => makePrimary(claimed.port)}
+                >
+                  make primary
+                </button>
+              )}
+              <span className="flex-1" />
+              <span className="truncate text-xs text-ink-faint" title={claimed.source}>
+                {claimed.source}
+              </span>
+              <IconButton title={`Release ${claimed.port}`} onClick={() => release(claimed.port)}>
+                <IconTrash width={13} height={13} />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <label className="mb-1 block text-sm font-medium text-ink-soft">
+        {project.ports.length > 0 ? 'Claim another port' : 'Claim a port'}
+      </label>
       <div className="flex gap-2">
         <input
-          className={inputCls}
+          className={`${inputCls} max-w-[7rem] font-mono`}
           inputMode="numeric"
-          placeholder="7420"
+          placeholder="7432"
           value={value}
           onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ''))}
-          onKeyDown={(e) => e.key === 'Enter' && save()}
+          onKeyDown={(e) => e.key === 'Enter' && claim()}
         />
-        <Button variant="primary" disabled={busy} onClick={save}>Save</Button>
+        <input
+          className={inputCls}
+          placeholder="what runs on it — web, api, docs (optional)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && claim()}
+        />
+        <Button variant="primary" disabled={busy} onClick={claim}>Claim</Button>
       </div>
 
       {check && (
@@ -402,7 +474,6 @@ function DevPortModal({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Button variant="subtle" disabled={busy} onClick={detect}>Detect from project files</Button>
-        {value && <Button variant="ghost" disabled={busy} onClick={() => { setValue(''); }}>Clear</Button>}
       </div>
 
       {suggested.length > 0 && (
@@ -423,11 +494,9 @@ function DevPortModal({
       )}
 
       <p className="mt-4 text-xs text-ink-faint">
-        Saving only records the port here — it doesn&apos;t change the project&apos;s config. Set the
-        same port in the project&apos;s dev server so the two agree.
-        {project.devPortSource && project.devPortSource !== 'manual' && (
-          <> Current value came from <span className="font-mono">{project.devPortSource}</span>.</>
-        )}
+        Claiming only records the port here — it doesn&apos;t change the project&apos;s config. Set the
+        same ports in the project&apos;s dev servers so the two agree. A port another project already
+        holds is refused; 3000, 3001 and 5000 are permanently taken on this machine.
       </p>
     </Modal>
   )

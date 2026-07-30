@@ -48,6 +48,10 @@ const list = (value) =>
         .map((s) => s.trim())
         .filter(Boolean)
 
+// `--label web` → "web"; a bare `--label` (parsed as true) counts as not given.
+const flagText = (name) =>
+  FLAGS[name] !== undefined && FLAGS[name] !== true ? String(FLAGS[name]) : undefined
+
 const bool = (value, fallback = undefined) => {
   if (value === undefined) return fallback
   if (value === true) return true
@@ -74,7 +78,11 @@ function provenanceHeaders() {
 }
 
 async function api(path, init = {}) {
-  const headers = { ...provenanceHeaders(), ...(init.headers || {}) }
+  // No keep-alive. A CLI run makes two or three requests and exits, so a pooled connection
+  // buys nothing — and on Windows, exiting with one still open makes libuv abort
+  // ("Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)") *after* the error has been
+  // printed, replacing exit code 1 with a crash. An agent reading the exit code sees noise.
+  const headers = { connection: 'close', ...provenanceHeaders(), ...(init.headers || {}) }
   if (init.json !== undefined) {
     headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(init.json)
@@ -104,6 +112,21 @@ async function api(path, init = {}) {
 
 const getJson = async (path) => (await api(path)).json()
 const post = async (path, json) => (await api(path, { method: 'POST', json })).json()
+
+// A refused port claim is an ordinary answer, not a transport failure: the server's sentence
+// already says which project holds the port and what to do about it, so it is shown on its
+// own rather than wrapped in "Launchpad API 409:".
+async function claimOrExplain(path, json) {
+  try {
+    return await post(path, json)
+  } catch (error) {
+    if (error.status === 409 || error.status === 400) {
+      throw new CliError(String(error.message).replace(/^Launchpad API \d+: /, ''))
+    }
+    throw error
+  }
+}
+
 const patch = async (path, json) => (await api(path, { method: 'PATCH', json })).json()
 const put = async (path, json) => (await api(path, { method: 'PUT', json })).json()
 const del = async (path) => (await api(path, { method: 'DELETE' })).json()
@@ -333,7 +356,9 @@ RULES
   · Every command targets the project bound to the current folder. Use --project to override.
   · Add --json to any read command for machine-readable output.
   · Never invent a dev-server port. Ask for a free one (launchpad ports free), claim it
-    (launchpad set port <n>), then configure the dev server to use exactly that port.
+    (launchpad ports add <n>), then configure the dev server to use exactly that port.
+    Claiming refuses a port another project holds — that refusal is the feature, not a
+    hurdle to route around. Ask for another port instead.
 
 TARGETING (most explicit wins)
   --project <id|name>  →  $LAUNCHPAD_PROJECT  →  ai-instructions/.launchpad.json  →  cwd path
@@ -373,25 +398,37 @@ PROJECT
   launchpad register <path> [--name "<name>"]         Add an existing folder as a project
 
 PORTS — which localhost each project runs on
-  launchpad ports [--json]             Every project's port, whether something is listening
-                                       on it, conflicts, and ports in use that no project
-                                       claims. Ends with free ports you may take.
+  A project claims ONE PORT PER PROCESS it runs: a web server and an API are two claims on
+  one project, not two projects.
+
+  launchpad ports [--json]             Every claim, whether something is listening on it,
+                                       conflicts, and ports in use that no project claims.
+                                       Ends with free ports you may take.
   launchpad ports check <port> [--json]   Is it free, and who claims it
-  launchpad ports free [--count 3] [--json]   Free ports Launchpad suggests
-  launchpad set port <number>          Claim that port for this project
-  launchpad set port none              Release it
-  launchpad ports detect               Read this project's own config and store the port it
+  launchpad ports free [--count 3] [--json]   Free ports Launchpad suggests. Excludes ports
+                                       that are listening AND ports already claimed here.
+  launchpad ports add <port> [--label "api"] [--force]
+                                       Claim one more port, keeping the project's others
+  launchpad ports rm <port>            Release one
+  launchpad ports label <port> "<text>"   Say what runs on it
+  launchpad ports primary <port>       Which one "open localhost" means
+  launchpad set port <number>          Claim that port and RELEASE every other claim
+  launchpad set port none              Release them all
+  launchpad ports detect               Read this project's own config and claim every port it
                                        declares (.claude/launch.json, vite.config, package.json
                                        scripts, next.config, .env, docker-compose,
-                                       launchSettings.json — first match wins)
+                                       launchSettings.json — the first file that names a port
+                                       wins, and all of that file's ports are claimed)
 
   PICKING A PORT — do it in this order, never guess:
     launchpad ports free               1. see what is actually free right now
-    launchpad set port 7431            2. claim it in Launchpad before you use it
+    launchpad ports add 7431           2. claim it in Launchpad before you use it
                                        3. configure the project's dev server (vite.config,
                                           .claude/launch.json, the npm script) to that port
-  3000, 3001 and 5000 are permanently taken on this machine, and 7420/7421 are Launchpad's
-  own. They are never suggested — do not use them.
+  A claim is REFUSED if another project already holds the port (409 — pick another, or pass
+  --force if they genuinely never run together) or if the port is reserved. 3000, 3001 and
+  5000 are permanently taken on this machine, and 7420/7421 are Launchpad's own: those are
+  refused outright, --force or not.
 
 TASKS
   launchpad task add "<title>" [--body "…"] [--priority high|medium|low]
@@ -655,18 +692,22 @@ async function cmdSet(positional) {
     if (!clearing && !Number.isInteger(port)) {
       throw new CliError('Usage: launchpad set port <number|none>')
     }
-    // Claiming is deliberate, so a taken port is a warning rather than a refusal — but the
-    // agent must see it, otherwise two projects quietly end up on the same localhost.
-    const check = clearing ? null : await getJson(`/api/ports/check?port=${port}`)
-    const updated = await post(`/api/projects/${project.id}/port`, { port })
-    emit({ ...updated, check }, () => {
-      if (clearing) return out(`✓ Released the dev port for "${project.name}"`)
+    // `set port` means "this project runs on exactly this port" — it replaces every claim.
+    // Use `ports add` for a project that runs several processes.
+    const result = await claimOrExplain(`/api/projects/${project.id}/port`, {
+      port,
+      label: flagText('label'),
+      force: FLAGS.force === true
+    })
+    emit(result, () => {
+      if (clearing) return out(`✓ Released every dev port for "${project.name}"`)
+      // The project as it was before the call, so "what did this replace?" is answerable.
+      const replaced = (project.ports ?? []).filter((p) => p.port !== port)
       out(`✓ "${project.name}" claims port ${port}  →  http://localhost:${port}`)
-      const others = (check?.claimedBy ?? '')
-        .split(', ')
-        .filter((name) => name && name !== project.name)
-      if (others.length > 0) out(`  ! Also claimed by ${others.join(', ')} — one of you must move.`)
-      else if (check?.listening) out(`  ! Something else is already listening on ${port}.`)
+      if (replaced.length > 0) {
+        out(`  (replaced ${replaced.map((p) => p.port).join(', ')} — use \`ports add\` to keep several)`)
+      }
+      if (result.warning) out(`  ! ${result.warning}`)
       out(`  Now configure the dev server to use ${port}.`)
     })
   } else {
@@ -720,29 +761,31 @@ async function cmdTag(positional) {
 // ---------------------------------------------------------------- commands: ports
 
 function printPortOverview(overview) {
-  const claimed = overview.projects.filter((p) => p.devPort !== null)
-  const unclaimed = overview.projects.filter((p) => p.devPort === null)
-  const claimedSet = new Set(claimed.map((p) => p.devPort))
+  const claimedSet = new Set(overview.claims.map((c) => c.port))
 
-  if (claimed.length === 0) {
+  if (overview.claims.length === 0) {
     out('No project claims a dev port yet.  →  launchpad ports detect')
   } else {
-    const width = Math.max(...claimed.map((p) => p.name.length))
+    const width = Math.max(...overview.claims.map((c) => c.projectName.length))
     out('Project dev ports')
-    for (const p of claimed) {
-      const source = p.devPortSource ? `  (${p.devPortSource})` : ''
-      const conflict = p.conflictsWith.length > 0 ? `  ! also claimed by ${p.conflictsWith.join(', ')}` : ''
+    for (const c of overview.claims) {
+      const label = c.label ? `  [${c.label}]` : ''
+      const source = c.source ? `  (${c.source})` : ''
+      const flags = [
+        c.reserved ? '! reserved — permanently taken on this machine' : '',
+        c.conflictsWith.length > 0 ? `! also claimed by ${c.conflictsWith.join(', ')}` : ''
+      ].filter(Boolean)
       out(
-        `  #${String(p.projectId).padEnd(3)} ${p.name.padEnd(width)}  ${String(p.devPort).padEnd(5)} ` +
-          `${p.listening ? '● live' : '○ idle'}  ${p.url}${source}${conflict}`
+        `  #${String(c.projectId).padEnd(3)} ${c.projectName.padEnd(width)}  ${String(c.port).padEnd(5)} ` +
+          `${c.listening ? '● live' : '○ idle'}  ${c.url}${label}${source}${flags.length ? `  ${flags.join('  ')}` : ''}`
       )
     }
   }
 
-  if (unclaimed.length > 0) {
+  if (overview.unclaimed.length > 0) {
     out('')
-    out(`No port claimed (${unclaimed.length})`)
-    out(`  ${unclaimed.map((p) => p.name).join(', ')}`)
+    out(`No port claimed (${overview.unclaimed.length})`)
+    out(`  ${overview.unclaimed.map((p) => p.name).join(', ')}`)
     out('  → launchpad ports detect --project "<name>"')
   }
 
@@ -783,7 +826,16 @@ async function cmdPorts(positional) {
     emit(result, () => {
       if (result.ports.length === 0) return out('No free ports found in the suggestion range.')
       out(`Free ports: ${result.ports.join(', ')}`)
-      out(`  Claim one with: launchpad set port ${result.ports[0]}`)
+      // Spelled out because "free" has two meanings here and only one of them is obvious:
+      // nothing is listening AND no project has claimed it in Launchpad.
+      const { claimed, listening, reserved } = result.skipped
+      const skipped = [
+        claimed.length > 0 ? `${claimed.length} already claimed (${claimed.join(', ')})` : '',
+        listening.length > 0 ? `${listening.length} in use` : '',
+        reserved.length > 0 ? `${reserved.length} reserved` : ''
+      ].filter(Boolean)
+      if (skipped.length > 0) out(`  Skipped on the way: ${skipped.join(', ')}.`)
+      out(`  Claim one with: launchpad ports add ${result.ports[0]}`)
     })
     return
   }
@@ -792,18 +844,81 @@ async function cmdPorts(positional) {
     const project = await resolveProject(FLAGS)
     const result = await post(`/api/projects/${project.id}/detect-port`)
     emit(result, () => {
-      if (result.port === null) {
-        out(`No dev port declared in "${project.name}"'s config files.`)
-        out('  → launchpad ports free, then: launchpad set port <number>')
-        return
+      for (const claim of result.claimed) {
+        out(`✓ "${project.name}" claims http://localhost:${claim.port}  (from ${claim.source})`)
       }
-      out(`✓ "${project.name}" runs on http://localhost:${result.port}  (from ${result.source})`)
+      for (const skip of result.skipped) {
+        out(`✗ ${skip.port} declared in ${skip.source} but not claimed: ${skip.reason}`)
+      }
+      if (result.claimed.length === 0 && result.skipped.length === 0) {
+        out(`No dev port declared in "${project.name}"'s config files.`)
+        out('  → launchpad ports free, then: launchpad ports add <number>')
+      }
     })
     return
   }
 
+  // A project that runs several processes claims several ports; `add`/`rm` touch one claim
+  // and leave the rest alone, unlike `set port`, which replaces them all.
+  if (action === 'add') {
+    const port = Number(positional[2])
+    if (!Number.isFinite(port)) {
+      throw new CliError('Usage: launchpad ports add <port> [--label "web"] [--force]')
+    }
+    const project = await resolveProject(FLAGS)
+    const result = await claimOrExplain(`/api/projects/${project.id}/ports`, {
+      port,
+      label: flagText('label'),
+      force: FLAGS.force === true
+    })
+    emit(result, () => {
+      const label = result.claim.label ? ` [${result.claim.label}]` : ''
+      out(`✓ "${project.name}" claims port ${port}${label}  →  http://localhost:${port}`)
+      const all = result.project.ports.map((p) => p.port)
+      if (all.length > 1) out(`  Now holding ${all.join(', ')} (primary: ${all[0]}).`)
+      if (result.warning) out(`  ! ${result.warning}`)
+      out(`  Now configure that process to use ${port}.`)
+    })
+    return
+  }
+
+  if (action === 'rm' || action === 'remove') {
+    const port = Number(positional[2])
+    if (!Number.isFinite(port)) throw new CliError('Usage: launchpad ports rm <port>')
+    const project = await resolveProject(FLAGS)
+    const updated = await del(`/api/projects/${project.id}/ports/${port}`)
+    emit(updated, () => {
+      out(`✓ "${project.name}" released port ${port}`)
+      const all = updated.ports.map((p) => p.port)
+      out(all.length > 0 ? `  Still holding ${all.join(', ')}.` : '  It now claims no ports.')
+    })
+    return
+  }
+
+  if (action === 'label') {
+    const port = Number(positional[2])
+    const label = positional.slice(3).join(' ').trim()
+    if (!Number.isFinite(port)) throw new CliError('Usage: launchpad ports label <port> "<what runs on it>"')
+    const project = await resolveProject(FLAGS)
+    const claim = await patch(`/api/projects/${project.id}/ports/${port}`, { label })
+    emit(claim, () => out(`✓ ${port} is "${claim.label || '(unlabelled)'}" for "${project.name}"`))
+    return
+  }
+
+  // Which port "open localhost" and the agent block mean when a project holds several.
+  if (action === 'primary') {
+    const port = Number(positional[2])
+    if (!Number.isFinite(port)) throw new CliError('Usage: launchpad ports primary <port>')
+    const project = await resolveProject(FLAGS)
+    const updated = await post(`/api/projects/${project.id}/ports/order`, { ports: [port] })
+    emit(updated, () => out(`✓ "${project.name}" leads with ${updated.ports.map((p) => p.port).join(', ')}`))
+    return
+  }
+
   if (action !== undefined && action !== 'list') {
-    throw new CliError('Usage: launchpad ports [list|check <port>|free|detect]')
+    throw new CliError(
+      'Usage: launchpad ports [list|check <port>|free|detect|add <port>|rm <port>|label <port> "<text>"|primary <port>]'
+    )
   }
 
   const overview = await getJson('/api/ports')
@@ -1102,7 +1217,10 @@ async function main() {
     await handler(positional)
   } catch (e) {
     console.error(`✗ ${e.message}`)
-    exit(1)
+    // Set the code and let the loop drain rather than tearing the process down mid-socket;
+    // see the note in api(). A refused port claim is an ordinary outcome and has to leave a
+    // clean exit 1 behind it.
+    process.exitCode = 1
   }
 }
 

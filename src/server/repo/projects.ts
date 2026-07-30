@@ -1,8 +1,16 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fromBool, getDb, nowIso, toBool } from '../db/database.ts'
+import { portsByProject, portsForProject } from './projectPorts.ts'
 import { tagsByProject, tagsForProject } from './tags.ts'
-import type { GitActivity, GitInfo, Project, ProjectStatus, Tag } from '../../shared/types.ts'
+import type {
+  GitActivity,
+  GitInfo,
+  PortClaim,
+  Project,
+  ProjectStatus,
+  Tag
+} from '../../shared/types.ts'
 
 interface ProjectRow {
   id: number
@@ -56,7 +64,7 @@ function parseStack(raw: string): string[] {
   }
 }
 
-function mapRow(row: ProjectRow, tags: Tag[] = []): Project {
+function mapRow(row: ProjectRow, tags: Tag[] = [], ports: PortClaim[] = []): Project {
   const git: GitInfo = {
     hasGit: toBool(row.git_has),
     branch: row.git_branch,
@@ -90,8 +98,11 @@ function mapRow(row: ProjectRow, tags: Tag[] = []): Project {
     tags,
     liveUrl: row.live_url,
     vercelProjectId: row.vercel_project_id,
-    devPort: row.dev_port,
-    devPortSource: row.dev_port_source,
+    ports,
+    // Derived, never stored: the primary claim is simply the first one. The dev_port columns
+    // on the row are a pre-v6 leftover kept only so old backups can be restored.
+    devPort: ports[0]?.port ?? null,
+    devPortSource: ports[0]?.source ?? null,
     pathExists: existsSync(row.path),
     onboarded: isOnboarded(row.path)
   }
@@ -134,17 +145,18 @@ export function listProjects(): Project[] {
     .prepare(`${SELECT} ORDER BY p.is_favorite DESC, p.git_last_commit_at DESC, p.name ASC`)
     .all() as unknown as ProjectRow[]
   const tagMap = tagsByProject()
-  return rows.map((row) => mapRow(row, tagMap.get(row.id) ?? []))
+  const portMap = portsByProject()
+  return rows.map((row) => mapRow(row, tagMap.get(row.id) ?? [], portMap.get(row.id) ?? []))
 }
 
 export function getProject(id: number): Project | null {
   const row = getDb().prepare(`${SELECT} WHERE p.id = ?`).get(id) as unknown as ProjectRow | undefined
-  return row ? mapRow(row, tagsForProject(row.id)) : null
+  return row ? mapRow(row, tagsForProject(row.id), portsForProject(row.id)) : null
 }
 
 export function getProjectByPath(path: string): Project | null {
   const row = getDb().prepare(`${SELECT} WHERE p.path = ?`).get(path) as unknown as ProjectRow | undefined
-  return row ? mapRow(row, tagsForProject(row.id)) : null
+  return row ? mapRow(row, tagsForProject(row.id), portsForProject(row.id)) : null
 }
 
 export interface CreateProjectInput {
@@ -180,9 +192,11 @@ export interface UpdateProjectInput {
   path?: string
   liveUrl?: string | null
   vercelProjectId?: string | null
-  devPort?: number | null
-  devPortSource?: string | null
 }
+
+// Ports are deliberately absent above. They live in `project_ports` and are written only
+// through services/ports.ts, which is where reserved ports and cross-project collisions are
+// refused — a generic PATCH must not be able to walk around that check.
 
 export function updateProject(id: number, patch: UpdateProjectInput): Project | null {
   const fields: string[] = []
@@ -218,14 +232,6 @@ export function updateProject(id: number, patch: UpdateProjectInput): Project | 
   if (patch.vercelProjectId !== undefined) {
     fields.push('vercel_project_id = ?')
     values.push(patch.vercelProjectId)
-  }
-  if (patch.devPort !== undefined) {
-    fields.push('dev_port = ?')
-    values.push(patch.devPort)
-  }
-  if (patch.devPortSource !== undefined) {
-    fields.push('dev_port_source = ?')
-    values.push(patch.devPortSource)
   }
   if (fields.length > 0) {
     values.push(id)

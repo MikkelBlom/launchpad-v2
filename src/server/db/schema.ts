@@ -176,6 +176,39 @@ const MIGRATIONS: Array<(db: DatabaseSync) => void> = [
       ALTER TABLE projects ADD COLUMN dev_port INTEGER;
       ALTER TABLE projects ADD COLUMN dev_port_source TEXT;
     `)
+  },
+  // v6 — many ports per project. One row per claimed port, because a project that runs a
+  // web server, an API and a worker holds three localhost ports, not one.
+  //
+  // UNIQUE is (project_id, port): a project cannot claim the same port twice. It is
+  // deliberately NOT unique on `port` alone — two projects claiming one port is exactly the
+  // mistake this table has to be able to *represent* so the UI can show it and the user can
+  // fix it. Refusing new collisions is the service's job (see services/ports.ts), not the
+  // schema's, which would have made this migration fail on the data that prompted it.
+  //
+  // projects.dev_port / dev_port_source stay behind as a legacy mirror: they are what a
+  // pre-v6 backup carries, and services/backup.ts rebuilds claims from them on restore.
+  (db) => {
+    db.exec(`
+      CREATE TABLE project_ports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        port INTEGER NOT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'manual',
+        sort INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        UNIQUE (project_id, port)
+      );
+
+      CREATE INDEX idx_project_ports_project ON project_ports(project_id);
+      CREATE INDEX idx_project_ports_port ON project_ports(port);
+
+      INSERT INTO project_ports (project_id, port, label, source, sort, created_at)
+        SELECT id, dev_port, '', COALESCE(NULLIF(dev_port_source, ''), 'manual'), 0, created_at
+        FROM projects
+        WHERE dev_port IS NOT NULL;
+    `)
   }
 ]
 

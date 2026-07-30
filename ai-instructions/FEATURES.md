@@ -113,6 +113,14 @@ Plain status tracker (readable markdown — this is not machine-parsed).
   frees one for reuse). The CLI resolves a binding by **folder** and rewrites a stale id, which also
   closes a silent mis-targeting bug: a reused id could point an agent's writes at another project.
   Bindings now record `path`, so a copied binding or a reused id is refused, not followed.
+- **Many ports per project, and claims that are actually enforced** (2026-07-30) — migration v6
+  adds `project_ports` (one row per claimed port, with a label and a source), so a project that
+  runs a web server and an API claims both. `Project.devPort` is now derived from the first claim.
+  Claiming goes through one gate: a **reserved** port (3000/3001/5000, 7420/7421) is refused
+  outright, a port another project holds is refused with a 409 naming that project unless
+  `--force`. Detection claims every port the winning config file declares and reports the ones it
+  refused instead of storing them silently. `PATCH /api/projects/:id` no longer accepts `devPort`
+  at all. CLI: `ports add|rm|label|primary`, and `ports free` now prints what it skipped.
 
 ## Planned / not yet
 

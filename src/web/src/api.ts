@@ -14,7 +14,11 @@ import type {
   Note,
   OnboardResult,
   PortCheck,
+  PortClaim,
+  PortClaimResult,
+  PortDetectResult,
   PortOverview,
+  PortSuggestion,
   Priority,
   Project,
   ProjectAudit,
@@ -105,18 +109,29 @@ export const api = {
     req<Project>(`/projects/${id}`, { method: 'PATCH', ...body({ liveUrl }) }),
   openLive: (id: number) => req<{ ok: true }>(`/projects/${id}/open-live`, { method: 'POST' }),
 
-  // Dev server ports
+  // Dev server ports. A project claims one per process it runs.
   ports: () => req<PortOverview>('/ports'),
-  checkPort: (port: number) => req<PortCheck>(`/ports/check?port=${port}`),
-  suggestPorts: (count = 3) => req<{ ports: number[] }>(`/ports/suggest?count=${count}`),
-  setPort: (id: number, port: number | null) =>
-    req<Project>(`/projects/${id}/port`, { method: 'POST', ...body({ port }) }),
+  checkPort: (port: number, projectId?: number) =>
+    req<PortCheck>(
+      `/ports/check?port=${port}${projectId === undefined ? '' : `&projectId=${projectId}`}`
+    ),
+  suggestPorts: (count = 3) => req<PortSuggestion>(`/ports/suggest?count=${count}`),
+  claimPort: (id: number, port: number, options: { label?: string; force?: boolean } = {}) =>
+    req<PortClaimResult>(`/projects/${id}/ports`, { method: 'POST', ...body({ port, ...options }) }),
+  labelPort: (id: number, port: number, label: string) =>
+    req<PortClaim>(`/projects/${id}/ports/${port}`, { method: 'PATCH', ...body({ label }) }),
+  releasePort: (id: number, port: number) =>
+    req<Project>(`/projects/${id}/ports/${port}`, { method: 'DELETE' }),
+  releaseAllPorts: (id: number) => req<Project>(`/projects/${id}/ports`, { method: 'DELETE' }),
+  orderPorts: (id: number, ports: number[]) =>
+    req<Project>(`/projects/${id}/ports/order`, { method: 'POST', ...body({ ports }) }),
   detectPort: (id: number) =>
-    req<{ port: number | null; source: string | null; project: Project }>(
-      `/projects/${id}/detect-port`,
+    req<PortDetectResult>(`/projects/${id}/detect-port`, { method: 'POST' }),
+  openDev: (id: number, port?: number) =>
+    req<{ ok: true; url: string }>(
+      `/projects/${id}/open-dev${port === undefined ? '' : `?port=${port}`}`,
       { method: 'POST' }
     ),
-  openDev: (id: number) => req<{ ok: true }>(`/projects/${id}/open-dev`, { method: 'POST' }),
 
   // Working-tree diff
   diff: (id: number, staged = false) =>

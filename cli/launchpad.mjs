@@ -6,8 +6,8 @@
 // launchpad-v2 folder, then run `launchpad guide` from anywhere.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, parse as parsePath } from 'node:path'
-import { argv, cwd, env, exit, stdout } from 'node:process'
+import { dirname, join, parse as parsePath, resolve as resolvePath } from 'node:path'
+import { argv, cwd, env, exit, platform, stdout } from 'node:process'
 
 const BASE = (env.LAUNCHPAD_URL || 'http://localhost:7420').replace(/\/$/, '')
 const BINDING_FILE = join('ai-instructions', '.launchpad.json')
@@ -120,7 +120,15 @@ function findBinding(from = cwd()) {
       try {
         const data = JSON.parse(readFileSync(file, 'utf-8'))
         if (data && Number.isFinite(Number(data.projectId))) {
-          return { file, dir, projectId: Number(data.projectId), name: data.name }
+          return {
+            file,
+            dir,
+            projectId: Number(data.projectId),
+            name: data.name,
+            // The folder the binding was written for. Absent in bindings written before this
+            // field existed, which is why every use of it is conditional.
+            path: typeof data.path === 'string' ? data.path : null
+          }
         }
       } catch {
         /* unreadable binding is the same as no binding */
@@ -133,16 +141,45 @@ function findBinding(from = cwd()) {
   }
 }
 
+// Windows paths differ in case without differing in meaning, so compare accordingly.
+function samePath(a, b) {
+  if (!a || !b) return false
+  const norm = (p) => (platform === 'win32' ? resolvePath(p).toLowerCase() : resolvePath(p))
+  return norm(a) === norm(b)
+}
+
 function writeBinding(project, dir = cwd()) {
   const file = join(dir, BINDING_FILE)
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(
     file,
-    `${JSON.stringify({ projectId: project.id, name: project.name, url: BASE }, null, 2)}\n`,
+    `${JSON.stringify(
+      { projectId: project.id, name: project.name, path: project.path, url: BASE },
+      null,
+      2
+    )}\n`,
     'utf-8'
   )
   return file
 }
+
+// Notices about targeting go to stderr, never stdout: `--json` output is parsed by agents and a
+// stray line would break it.
+const warn = (message) => console.error(`! ${message}`)
+
+// Both of these answer "or nothing" rather than throwing, so resolveProject can ask about a folder
+// and an id at the same time and decide with both answers in hand.
+const orNull404 = async (path) => {
+  try {
+    return await getJson(path)
+  } catch (e) {
+    if (e.status === 404) return null
+    throw e
+  }
+}
+
+const resolveByPath = (dir) => orNull404(`/api/projects/resolve?path=${encodeURIComponent(dir)}`)
+const getProjectOrNull = (id) => orNull404(`/api/projects/${id}`)
 
 async function findByNameOrId(needle) {
   const projects = await getJson('/api/projects')
@@ -169,17 +206,64 @@ async function resolveProject(flags) {
 
   const binding = findBinding()
   if (binding) {
-    try {
-      return await getJson(`/api/projects/${binding.projectId}`)
-    } catch (e) {
-      if (e.status === 404) {
+    // The binding's id is a cache, not the identity. Database ids move — a duplicate merge keeps
+    // one registration and frees the other's id for reuse — so trusting the id alone could target
+    // whatever project inherited it. That is the one thing this CLI must never do: silently write
+    // an agent's notes into somebody else's project.
+    //
+    // The folder is the identity. Ask which project is registered at the binding's folder, and let
+    // that answer win.
+    const [atFolder, atId] = await Promise.all([
+      resolveByPath(binding.dir),
+      getProjectOrNull(binding.projectId)
+    ])
+
+    if (atFolder) {
+      if (!atId || atId.id !== atFolder.id) {
+        // Stale id. Correct the file so the next command (and any other tool reading it) agrees,
+        // and say so on stderr — stdout may be JSON an agent is parsing.
+        try {
+          writeBinding(atFolder, binding.dir)
+          warn(
+            `${binding.file} pointed at project #${binding.projectId}; this folder is ` +
+              `#${atFolder.id} "${atFolder.name}". Binding updated.`
+          )
+        } catch {
+          warn(
+            `${binding.file} points at project #${binding.projectId}, but this folder is ` +
+              `#${atFolder.id} "${atFolder.name}". Using #${atFolder.id}; the file could not be ` +
+              `rewritten.`
+          )
+        }
+      }
+      return atFolder
+    }
+
+    // No project registered at this folder, so the binding is the only signal. Two ways it can
+    // still be wrong, and both mean "refuse" rather than "guess":
+    if (atId) {
+      if (binding.path && !samePath(binding.path, binding.dir)) {
         throw new CliError(
-          `${binding.file} points at project #${binding.projectId}, which no longer exists.\n` +
+          `${binding.file} was written for ${binding.path}, not this folder.\n` +
+            `  It looks copied from another project, so #${binding.projectId} ` +
+            `"${atId.name}" is probably not what you meant.\n` +
             `  → Re-bind with:  launchpad bind "<name or id>"`
         )
       }
-      throw e
+      if (binding.name && binding.name !== atId.name) {
+        throw new CliError(
+          `${binding.file} names project "${binding.name}", but #${binding.projectId} is now ` +
+            `"${atId.name}" — that id was reused.\n` +
+            `  → Re-bind with:  launchpad bind "<name or id>"`
+        )
+      }
+      return atId
     }
+
+    throw new CliError(
+      `${binding.file} points at project #${binding.projectId}, which no longer exists.\n` +
+        `  → Re-bind with:  launchpad bind "<name or id>"`
+    )
   }
 
   try {
@@ -254,6 +338,8 @@ RULES
 TARGETING (most explicit wins)
   --project <id|name>  →  $LAUNCHPAD_PROJECT  →  ai-instructions/.launchpad.json  →  cwd path
   If nothing resolves the command fails; it never guesses.
+  Within a binding, the FOLDER wins over the id written in it: project ids move (a duplicate
+  merge frees an id for reuse), so a stale id is corrected from the folder rather than trusted.
 
 ORIENTATION
   launchpad guide                      This text

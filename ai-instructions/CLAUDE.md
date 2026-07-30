@@ -49,6 +49,9 @@ A single background service (Node + TypeScript + Fastify) that:
   UI only. Every agent write is reversible and attributed.
 - **Never guess which project.** Targeting resolves `--project` → `$LAUNCHPAD_PROJECT` →
   `ai-instructions/.launchpad.json` → cwd path, then hard-errors. Do not add a fallback.
+- **A project id is not an identity — the folder is.** Ids move (a duplicate merge frees an id for
+  reuse), so anything that persists an id outside the database must store the path too and resolve
+  by path first. Never gate a feature on a stored id still matching. See WORKING_NOTES.md.
 - **Batch push is merge-only and idempotent.** Match by normalized title, update in place, never
   remove. If you touch `services/agentPush.ts`, keep dry-run on the same code path (transaction
   + rollback) so the preview cannot drift from the apply.

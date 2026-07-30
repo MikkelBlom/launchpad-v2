@@ -1,5 +1,34 @@
 # Sessions — Launchpad v2
 
+## 2026-07-30 (later) — Onboarded projects offering to onboard again
+
+**Agent:** Claude Code (Opus 5).
+
+Reported symptom: projects already onboarded were showing the **Onboard** button again. The
+symptom was cosmetic; the cause was not.
+
+**Root cause: project ids are not stable, and two places treated one as an identity.** A duplicate
+merge keeps one registration and frees the other's id for reuse. "Ada Lovelace Day Program" was
+onboarded as #13 and is now #35 — and **#13 now belongs to "Program Management System"**. "Finance
+Tracker" was onboarded as #1, which no longer exists.
+
+- `isOnboarded()` demanded id equality, so a moved id read as never-onboarded → the button.
+- **`resolveProject()` in the CLI trusted the binding's id outright**, so inside Ada's folder it
+  resolved to *PMS*. An agent running `launchpad task add` there would have written to the wrong
+  project. That is the bug that mattered.
+
+Fixed by making **the folder the identity and the id a cache**: `isOnboarded(path)` only checks for
+a parseable binding (and deliberately repairs nothing — `mapRow` runs on every list); the CLI
+resolves the binding's folder against the service, lets that win, and rewrites a stale binding
+(warning on **stderr**, since stdout may be agent-parsed JSON). Bindings now also record `path`, so
+a *copied* binding and a *reused* id are both detectable and are refused rather than followed.
+
+**Verified:** the 2 broken projects report onboarded again and the other 22 (genuinely never
+onboarded) still show the button — confirmed in the DOM of the running app, 22 buttons, none on the
+3 onboarded projects. `launchpad whoami` in Ada's folder now resolves #35 and repairs the file;
+in Finance Tracker's, #4; in launchpad-v2's it stays silent. Re-ran onboarding for both to refresh
+the CLAUDE.md block and LAUNCHPAD.md, which named the stale ids in prose.
+
 ## 2026-07-30 — Packaged installer, and start-at-login finally works
 
 **Agent:** Claude Code (Opus 5).

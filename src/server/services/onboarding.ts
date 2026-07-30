@@ -20,14 +20,19 @@ export class OnboardError extends Error {
 const BINDING_FILE = join('ai-instructions', '.launchpad.json')
 
 // Same shape the CLI's `writeBinding` produces — this file is what makes a bare
-// `launchpad pull` inside the folder resolve to this project, and `Project.onboarded`
-// reads `projectId` back out of it.
+// `launchpad pull` inside the folder resolve to this project.
+//
+// `path` records the folder this binding was written for. Ids move (see isOnboarded in
+// repo/projects.ts), so the CLI treats `projectId` as a cache and uses `path` to tell a stale id
+// apart from a binding that was copied into a different repo. Re-running onboarding rewrites the
+// file, which is how a stale id gets corrected.
 function writeBinding(project: Project): string {
   const file = join(project.path, BINDING_FILE)
   mkdirSync(dirname(file), { recursive: true })
   const binding = {
     projectId: project.id,
     name: project.name,
+    path: project.path,
     url: `http://localhost:${getPort()}`
   }
   writeFileSync(file, `${JSON.stringify(binding, null, 2)}\n`, 'utf-8')

@@ -93,16 +93,27 @@ function mapRow(row: ProjectRow, tags: Tag[] = []): Project {
     devPort: row.dev_port,
     devPortSource: row.dev_port_source,
     pathExists: existsSync(row.path),
-    onboarded: isOnboarded(row.id, row.path)
+    onboarded: isOnboarded(row.path)
   }
 }
 
-// A project counts as onboarded once its folder carries a binding pointing back here —
-// that file is what makes a bare `launchpad pull` inside the folder resolve correctly.
-function isOnboarded(id: number, path: string): boolean {
+// A project counts as onboarded once its folder carries a Launchpad binding — that file is what
+// makes a bare `launchpad pull` inside the folder resolve to a project.
+//
+// It deliberately does NOT require the binding's `projectId` to equal this project's id. Database
+// ids are not stable: a duplicate merge keeps one registration and drops the other, and the freed
+// id gets handed to whatever is registered next. Demanding equality made projects that had been
+// onboarded weeks ago offer to onboard again the moment their id moved.
+//
+// The file's *location* is the identity here: a binding inside this project's folder describes
+// this project, and the id in it is a cache. Repairing a stale id belongs to a write path
+// (`resolveProject` in the CLI, or re-running onboarding) — never here, because mapRow runs on
+// every list and a read must not write into the user's repos.
+function isOnboarded(path: string): boolean {
   try {
     const raw = readFileSync(join(path, 'ai-instructions', '.launchpad.json'), 'utf-8')
-    return Number((JSON.parse(raw) as { projectId?: number }).projectId) === id
+    // Same bar the CLI's findBinding sets: a binding without a usable id is no binding.
+    return Number.isFinite(Number((JSON.parse(raw) as { projectId?: number }).projectId))
   } catch {
     return false
   }

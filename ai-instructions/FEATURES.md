@@ -108,6 +108,11 @@ Plain status tracker (readable markdown — this is not machine-parsed).
 - **One shell per channel** (2026-07-30) — `requestSingleInstanceLock()`, so the Start Menu entry
   raises the already-running window instead of starting a second tray icon. Each channel gets its
   own app name, so installed / from-source / dev shells never shadow each other.
+- **Onboarding survives an id change** (2026-07-30) — a project counts as onboarded when its folder
+  carries a binding, not when the id inside that binding still matches (ids move: a duplicate merge
+  frees one for reuse). The CLI resolves a binding by **folder** and rewrites a stale id, which also
+  closes a silent mis-targeting bug: a reused id could point an agent's writes at another project.
+  Bindings now record `path`, so a copied binding or a reused id is refused, not followed.
 
 ## Planned / not yet
 

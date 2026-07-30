@@ -258,6 +258,39 @@ Practical consequences:
   **not** a timer: an app rewriting its own Run key on a schedule is precisely the behaviour ATC
   is looking for, and a write/revert loop would make things worse rather than better.
 
+## ⚠ Project ids are not stable — never treat one as an identity
+Found 2026-07-30, from "projects I already onboarded are showing the Onboard button again".
+
+Ids move. A duplicate merge keeps one registration and drops the other, and SQLite hands the freed
+id to whatever is registered next. On this machine "Ada Lovelace Day Program" had been onboarded as
+**#13** and was later re-registered as **#35** — and **#13 now belongs to a different project**
+("Program Management System"). "Finance Tracker" had been onboarded as **#1**, which no longer
+exists at all.
+
+The onboard button was the harmless symptom: `isOnboarded()` required the binding's `projectId` to
+equal the project's current id, so a moved id read as "never onboarded".
+
+The dangerous symptom was in the CLI. `resolveProject()` trusted `binding.projectId` and only
+failed when that id 404'd — so in Ada's folder it resolved to **PMS**, and an agent running
+`launchpad task add` there would have written into the wrong project. Silent, and exactly what the
+"never guess which project" rule exists to prevent.
+
+Fix, and the rule it encodes: **the folder is the identity; the id in a binding is a cache.**
+- `isOnboarded(path)` asks only whether the folder carries a parseable binding. It does not, and
+  must not, repair anything — `mapRow` runs on every list and a read must never write into a repo.
+- `resolveProject()` asks the service which project is registered at the binding's folder and lets
+  that win, rewriting the stale binding as it goes (to **stderr**, because stdout may be JSON an
+  agent is parsing). A healthy binding stays silent.
+- Bindings now record `path`. With no project registered at the folder, a `path` that disagrees
+  with where the file was found means the binding was **copied** from another repo, so the id is
+  refused rather than followed. A name that disagrees with the project at that id means the id was
+  reused — also refused. Both hard-error with `launchpad bind` instructions.
+- Re-running onboarding is still the repair for the *other* two artifacts: the CLAUDE.md block and
+  LAUNCHPAD.md both name the project id in prose, and those were stale too.
+
+If you add anything else that persists a project id outside the database, give it a path alongside
+and resolve by path first.
+
 ## Why `npm run stop` matches command lines, not ports
 `tsx watch` on Windows regularly leaves an orphaned server whose listener is already gone, so a
 port-based kill reports success and the next `npm run dev` still dies on EADDRINUSE.

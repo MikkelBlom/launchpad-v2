@@ -1,0 +1,53 @@
+# Packaging config for the Launchpad desktop shell.
+#
+# It packages THE SHELL ONLY — electron/ plus the icons, no server bundle, no web build, no
+# node_modules. That is a deliberate invariant (ai-instructions/CLAUDE.md): the server and the
+# built UI are files the shell reads at startup from the working copy, so `npm run build` +
+# tray → "Restart server" ships a code change without reinstalling anything. The installer only
+# needs rebuilding when electron/main.cjs itself changes, which is roughly quarterly.
+#
+# The installed shell finds the working copy through resources/app-dir.json, baked by
+# scripts/bake-app-dir.mjs at package time and overridable from the tray afterwards.
+appId: dk.mikkelblom.launchpad
+productName: Launchpad
+copyright: Mikkel Blom
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - electron/**/*
+  - resources/**/*
+  - package.json
+  # The shell requires nothing but Electron's own builtins. Without this, electron-builder would
+  # pull every production dependency (fastify, react, simple-git) into the installer for nothing.
+  - '!node_modules/**/*'
+
+# Nothing native to rebuild, and the server never runs inside Electron.
+npmRebuild: false
+
+win:
+  icon: resources/icon.ico
+  target:
+    - nsis
+  # No code signing certificate. The consequence is a SmartScreen warning on first run, and
+  # Bitdefender taking an interest — see ai-instructions/WORKING_NOTES.md.
+  signAndEditExecutable: true
+
+nsis:
+  # A per-user install into %LOCALAPPDATA%\Programs\Launchpad. Two reasons, and the first is not
+  # cosmetic: that path contains **no spaces**, and Electron writes the Windows login item
+  # unquoted. Per-machine (Program Files) would put a space back in the path and break the
+  # `--hidden` argument that makes autostart land in the tray. It also means no UAC prompt.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Launchpad
+  # Replace rather than accumulate versions, and leave the database alone on uninstall
+  # (%APPDATA%\launchpad-v2 is the user's data, not ours to delete).
+  allowElevation: false
+  deleteAppDataOnUninstall: false
+  artifactName: Launchpad-Setup-${version}.${ext}

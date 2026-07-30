@@ -6,6 +6,9 @@ release/
 .env
 .env.*
 !.env.example
+# Baked at package time and holds this machine's absolute path to the working copy — a build
+# artifact, not source. See scripts/bake-app-dir.mjs.
+resources/app-dir.json
 # Local runtime data (SQLite db, config) lives in the OS app-data dir, but ignore any local copies
 data/
 *.sqlite

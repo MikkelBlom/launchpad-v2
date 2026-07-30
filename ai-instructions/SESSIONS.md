@@ -1,5 +1,46 @@
 # Sessions — Launchpad v2
 
+## 2026-07-30 — Packaged installer, and start-at-login finally works
+
+**Agent:** Claude Code (Opus 5).
+
+Mikkel's ask: "where do I build the desktop installer, the program still isn't launching at
+startup, and I want the desktop app." The answer to the first was *nowhere yet* — the installer
+was still open item `#13`, and it was also the cause of the second. He also had **no Launchpad
+Start Menu shortcut at all**, so there was nothing to click even manually.
+
+- **`electron-builder.yml`** — NSIS, per-user install to `%LOCALAPPDATA%\Programs\Launchpad`
+  (chosen because that path has **no spaces**: Electron writes the Run value unquoted, so
+  per-machine/Program Files would break the `--hidden` argument). Packages the shell only:
+  `electron/**` + `resources/**` + `package.json`, `!node_modules/**/*` → a 37 KB asar.
+  `npm run dist` → `release/Launchpad-Setup-0.1.0.exe` (76 MB with the Electron runtime).
+- **`electron/appRoot.cjs`** — resolves the working copy the shell reads the app from:
+  `LAUNCHPAD_APP_DIR` → `shell.json` → baked `app-dir.json` → (unpackaged) the repo. Each
+  candidate is validated, so a stale one falls through instead of producing a blank window. Tray
+  → **Change app folder…** re-points it; startup shows a picker with what it tried.
+- **`scripts/bake-app-dir.mjs`** (`npm run bake`) — writes this repo's path into
+  `resources/app-dir.json` before packaging, and refuses to bake without a server build.
+- **`electron/main.cjs`** — `"main"` field added to package.json (a packaged app has nothing else
+  to go on); `requestSingleInstanceLock()` so the Start Menu entry raises the running window;
+  `--hidden` start for the login case (tray only, window created lazily); per-channel
+  `app.setName()` so installed / from-source / dev shells don't share one lock; unpackaged runs
+  now refuse to write the login item instead of writing a broken one.
+- **`scripts/make-shortcuts.mjs`** — no longer creates a stable "Launchpad" shortcut; the
+  installer owns that name now.
+
+**Verified on the real machine:** installer built and installed silently; Start Menu + Desktop
+shortcuts created; app launches, spawns the server under system Node from the working copy, serves
+the UI on :7420; the Run key gets written as
+`dk.mikkelblom.launchpad = …\Programs\Launchpad\Launchpad.exe --hidden`; executing that exact
+string starts the app and its server; value stable across a 100-second watch. **Not verifiable
+without a reboot: an actual Windows login.**
+
+**Watch-out (see WORKING_NOTES):** mid-verification, all three registry readers agreed the value
+had reverted to a stale `release\win-unpacked` path whose folder had already been deleted — nothing
+live could have written it — alongside three `EPERM` process-spawn failures. That signature points
+at Bitdefender ATC rolling back a persistence write. The app repaired it on the next window focus.
+If autostart doesn't survive a reboot, read the Run value before suspecting the shell.
+
 ## 2026-07-27 — Agent read/write surface (push/pull, item tags, per-project handles)
 
 **Agent:** Claude Code (Opus 5).

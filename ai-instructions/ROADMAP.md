@@ -58,6 +58,7 @@ Legend: ✅ done · 🔨 in progress · 📋 planned
 
 ## Deferred (noted, not built this session)
 - Optional local-AI (Ollama) assist — summaries, "what's next"
-- Packaged installer (electron-builder) + bundled Node
+- ✅ Packaged installer (electron-builder) — done 2026-07-30, `npm run dist`. **Bundled Node is
+  still open**, so the install needs system Node 24+ on PATH.
 - Real mobile companion over LAN with auth
 - Drag-and-drop reordering (needs a dnd dependency)

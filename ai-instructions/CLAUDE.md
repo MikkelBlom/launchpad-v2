@@ -29,6 +29,20 @@ A single background service (Node + TypeScript + Fastify) that:
   child under the system Node. Never move SQLite into the Electron process.
 - **Windows-first.** Use `path` helpers; normalize project paths with `normalizePath` so the
   CLI's cwd matching works. Avoid ports 3000/3001/5000.
+- **Two channels, one live database.** The dev window (`--dev`, Vite on :7421) and the stable
+  app (`dist/` on :7420) both write `%APPDATA%\launchpad-v2\launchpad.sqlite`. That is
+  deliberate, and it means **dev is not a sandbox**: before touching a migration or anything
+  bulk/destructive, set `LAUNCHPAD_DATA_DIR` to a copy. The dev shell must never spawn its own
+  server and never write the Windows login item. See WORKING_NOTES.md.
+- **The shell is not the app.** Electron only hosts the window; the server and built UI are
+  files it reads at startup. A code change is picked up by reload/rebuild, never by reinstalling
+  — keep it that way. The installer (`npm run dist`) therefore packages **the shell only**, and
+  the installed shell resolves the working copy through `electron/appRoot.cjs`. Never put the
+  server bundle, `dist/web` or `node_modules` into the package.
+- **Start-at-login belongs to the installed app.** Electron writes the Run value unquoted, so it
+  only works from a path without spaces — which is why the install is per-user in
+  `%LOCALAPPDATA%\Programs\Launchpad`. Do not switch to a per-machine install, and never write the
+  Run key directly: Bitdefender quarantines an unsigned app that does. See WORKING_NOTES.md.
 - **AI is optional.** Every feature works with no network and no LLM. The agent surface is a
   plain CLI over the same REST API the UI uses — no model runs inside Launchpad.
 - **Agents archive, never delete.** The CLI has no delete verb. `DELETE` endpoints exist for the
@@ -70,8 +84,10 @@ filesystem on demand and caches results on the project row.
 
 ## Running
 
-See `README.md`. Short version: `npm run dev` → http://localhost:7421 (dev), or
-`npm run build && npm run desktop` for the desktop app.
+See `README.md`. Short version: `npm run dev:app` for the dev window (server + Vite + shell in
+one command, HMR live), or `npm run build && npm run desktop` for the stable desktop app.
+`npm run stop` clears orphaned server/Vite processes; `npm run shortcuts` (re)creates the two
+Start Menu entries.
 
 <!-- launchpad:begin -->
 ## Launchpad

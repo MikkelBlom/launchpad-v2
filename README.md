@@ -51,6 +51,93 @@ npm run desktop
 The port is configurable via the `LAUNCHPAD_PORT` env var (default **7420** — 3000/3001/5000
 are intentionally avoided).
 
+## Install the desktop app
+
+```bash
+npm run dist
+```
+
+That builds `release/Launchpad-Setup-0.1.0.exe`. Run it; it installs per-user into
+`%LOCALAPPDATA%\Programs\Launchpad` (no admin prompt) and creates Start Menu + Desktop
+shortcuts. **Start-at-login only works from the installed app** — see below.
+
+The installer packages **the shell only**: no server bundle, no web build, no `node_modules`
+(the whole app is a ~37 KB asar next to the Electron runtime). The installed shell reads the
+server and the UI from this working copy at startup, so the no-reinstall dev loop survives
+packaging — `npm run build` + tray → **Restart server** still ships a change, and the installer
+only needs rebuilding when `electron/main.cjs` itself changes.
+
+Which working copy it reads is baked at package time (`resources/app-dir.json`) and resolved in
+this order, each candidate validated so a stale one falls through instead of breaking the app:
+
+```
+LAUNCHPAD_APP_DIR  →  %APPDATA%\launchpad-v2\shell.json  →  resources/app-dir.json
+```
+
+If you move this repo, the installed app says so on startup and offers a folder picker; the
+tray's **Change app folder…** does the same at any time. It still needs **system Node 24+** on
+PATH — Electron's own Node has no `node:sqlite`.
+
+> The installer is unsigned, so SmartScreen shows "Windows protected your PC" on first run
+> (**More info → Run anyway**), and Bitdefender may take an interest in a fresh unsigned
+> Electron binary. See `ai-instructions/WORKING_NOTES.md`.
+
+### Start at login
+
+Windows starts the installed app via an `HKCU\…\Run` entry that Electron writes, keyed
+`dk.mikkelblom.launchpad`, with a `--hidden` argument so a machine start lands in the **tray**
+rather than throwing a window at you. Toggle it in **Settings** or the tray; the database is the
+source of truth and the shell makes Windows match it.
+
+The setting is deliberately inert outside the installed app: Electron writes that registry value
+*unquoted*, and an unpackaged run is `…\Project Manager\…\electron.exe` plus a script argument,
+which Windows cannot parse. An unpackaged shell therefore updates the database and leaves the
+registry alone rather than writing an entry that reports success and launches nothing. The
+per-user install path has no spaces in it, which is what makes the packaged case work.
+
+## The desktop app, while you're still building it
+
+**A code change never requires reinstalling anything.** The Electron shell is a window, a tray
+icon and a process spawner — the *app* is the Fastify server and the built web UI, which are
+plain files the shell reads at startup. So there are two channels off one working copy:
+
+```bash
+npm run shortcuts     # once — Start Menu entry for the dev window
+```
+
+| | **Launchpad** | **Launchpad (dev)** |
+|---|---|---|
+| Start it with | Start Menu (installed), or `npm run desktop` | `npm run dev:app` |
+| UI comes from | `dist/web`, served on :7420 | Vite on :7421, with HMR |
+| Server | `dist/server/index.js`, spawned by the shell | `tsx watch`, owned by `npm run dev` |
+| Starts at login | yes, when installed | never — it won't touch the login item |
+| Title bar says | Launchpad | Launchpad (dev) — live shared database |
+
+Only the dev shortcut is script-created. The plain **Launchpad** Start Menu entry belongs to the
+installer, so the two can't shadow each other — one name, one copy.
+
+The loop in dev: **edit UI → it repaints itself** (HMR, no reload, no build); **edit server →
+`tsx watch` restarts in about a second** and the next API call hits the new code. No build step
+in either case.
+
+To move a change into the always-on app: `npm run build`, then **tray → Restart server**. Both
+shortcuts run this working copy directly, so there is nothing to copy and nothing to install.
+The only change that needs the shell relaunched is an edit to `electron/main.cjs` itself.
+
+In the window: **F5** or **Ctrl+R** reloads, **F12** opens devtools. In the tray: **Reload UI**
+and **Restart server**.
+
+```bash
+npm run stop                  # kill orphaned server / tsx watch / Vite processes
+npm run stop -- --dry-run     # ...or just see which ones would be killed
+```
+
+> ⚠ **The dev window and the stable app share one live database**
+> (`%APPDATA%\launchpad-v2\launchpad.sqlite`) — on purpose, so you develop against real
+> projects. Dev is **not** a sandbox. Before changing a migration or doing anything bulk or
+> destructive, point dev at a copy with `LAUNCHPAD_DATA_DIR`. See
+> `ai-instructions/WORKING_NOTES.md`.
+
 ## First-time setup
 
 1. Open Launchpad → **Settings** → **Browse…** and pick a **project root**
@@ -150,7 +237,14 @@ repo is a one-way export.
 | Script | What it does |
 |--------|--------------|
 | `npm run dev` | Server + Vite web dev server (hot reload) |
+| `npm run dev:app` | The above **plus** the dev desktop window — the everyday dev command |
 | `npm run build` | Build web (`dist/web`) and bundle server (`dist/server`) |
 | `npm start` | Run the built service on :7420 |
-| `npm run desktop` | Launch the Electron desktop shell |
+| `npm run desktop` | Launch the stable Electron desktop shell |
+| `npm run desktop:dev` | Launch the dev window against an already-running `npm run dev` |
+| `npm run dist` | Build the installer → `release/Launchpad-Setup-<version>.exe` |
+| `npm run pack` | Same, but unpacked into `release/win-unpacked` — faster, for testing the shell |
+| `npm run stop` | Kill orphaned server / `tsx watch` / Vite processes (`-- --dry-run` to preview) |
+| `npm run shortcuts` | Create the dev Start Menu shortcut (`--desktop` for a Desktop copy too) |
+| `npm run icons` | Regenerate tray/window/PWA icons and `resources/icon.ico` |
 | `npm run typecheck` | Type-check the whole codebase |

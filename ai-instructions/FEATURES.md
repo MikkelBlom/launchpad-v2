@@ -74,9 +74,46 @@ Plain status tracker (readable markdown — this is not machine-parsed).
   > name similarity); `/relocate` re-points it; `/rename-folder` renames on disk and updates the
   stored path in one operation. See WORKING_NOTES for the policy.
 
+- **Two desktop channels, no reinstall loop** (2026-07-28) — `Launchpad` (stable: `dist/` on
+  :7420, starts at login) and `Launchpad (dev)` (Vite :7421 with HMR, never registers autostart,
+  never spawns its own server) run from the same working copy via Start Menu shortcuts
+  (`npm run shortcuts`). Dev mode is an explicit `--dev` / `LAUNCHPAD_DEV=1` flag rather than
+  the old guess based on whether `dist/web` existed. Stable runs the built server bundle under
+  plain node, so editing source can't break the always-on app. `npm run dev:app` starts
+  server + Vite + window together.
+- **Reload without restarting** (2026-07-28) — F5 / Ctrl+R / F12 bound in the window (the menu
+  bar is hidden, so default accelerators were unreliable) plus tray **Reload UI** and
+  **Restart server**. Shipping a change to the stable app is `npm run build` + one tray click.
+- **`npm run stop`** (2026-07-28) — kills orphaned server / `tsx watch` / Vite processes by
+  command line rather than by port, since tsx orphans outlive their listener. `-- --dry-run`
+  previews. Requires two signals (repo path + known process shape) so it can't kill the shell
+  running it or a neighbouring project's dev server.
+- **`resources/icon.ico`** (2026-07-28) — `npm run icons` now also emits a 6-size ICO (PNG-in-ICO)
+  so the Start Menu shortcuts carry the real Launchpad mark.
+
+- **Packaged installer** (2026-07-30) — `npm run dist` builds
+  `release/Launchpad-Setup-<version>.exe` (NSIS, per-user into `%LOCALAPPDATA%\Programs\Launchpad`,
+  no admin prompt, Start Menu + Desktop shortcuts). It packages **the shell only** — a 37 KB asar,
+  no server bundle, no web build, no `node_modules` — so the no-reinstall dev loop survives:
+  `npm run build` + tray → *Restart server* still ships a change. Config in
+  `electron-builder.yml`.
+- **Start-at-login actually works** (2026-07-30) — the fix was packaging, not registry code. The
+  install path has no spaces, so Electron's unquoted Run value is unambiguous and carries
+  `--hidden`, which lands a machine start in the tray instead of throwing a window at you.
+  Unpackaged runs now refuse to write the login item at all rather than writing a broken one.
+- **App folder resolution** (2026-07-30) — the installed shell finds the working copy via
+  `LAUNCHPAD_APP_DIR` → `%APPDATA%\launchpad-v2\shell.json` → `resources/app-dir.json` (baked by
+  `npm run bake` at package time), validating each candidate. If the repo moves, startup explains
+  what it tried and offers a picker; tray → **Change app folder…** re-points it any time.
+- **One shell per channel** (2026-07-30) — `requestSingleInstanceLock()`, so the Start Menu entry
+  raises the already-running window instead of starting a second tray icon. Each channel gets its
+  own app name, so installed / from-source / dev shells never shadow each other.
+
 ## Planned / not yet
 
 - Global hotkey for capture (currently in-app capture bar only).
 - Optional local-AI assist (summaries, next-step suggestions) — must stay optional.
 - Mobile face (server already local; would bind to LAN + auth).
-- Packaged installer (`electron-builder`) + bundled Node for zero-setup desktop.
+- **Bundled Node** in the installer, for a genuinely zero-setup install (today it still needs
+  system Node 24+ on PATH for `node:sqlite`). Would also remove the CLI's `npm link` step.
+- **Code signing.** Unsigned means a SmartScreen warning on first run and Bitdefender interest.

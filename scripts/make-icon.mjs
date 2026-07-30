@@ -136,6 +136,31 @@ function makePng(size) {
   ])
 }
 
+// Windows shortcuts (.lnk) cannot take a PNG, so ship an .ico as well. An ICO is just a
+// directory of images; since Vista each one may be a PNG, so the same rasteriser is reused.
+function makeIco(sizes) {
+  const images = sizes.map((s) => makePng(s))
+  const header = Buffer.alloc(6)
+  header.writeUInt16LE(0, 0) // reserved
+  header.writeUInt16LE(1, 2) // type: icon
+  header.writeUInt16LE(images.length, 4)
+
+  const entries = Buffer.alloc(16 * images.length)
+  let offset = header.length + entries.length
+  images.forEach((img, i) => {
+    const o = i * 16
+    // 256 is stored as 0 — the width/height fields are a single byte each.
+    entries[o] = sizes[i] >= 256 ? 0 : sizes[i]
+    entries[o + 1] = sizes[i] >= 256 ? 0 : sizes[i]
+    entries.writeUInt16LE(1, o + 4) // colour planes
+    entries.writeUInt16LE(32, o + 6) // bits per pixel
+    entries.writeUInt32LE(img.length, o + 8)
+    entries.writeUInt32LE(offset, o + 12)
+    offset += img.length
+  })
+  return Buffer.concat([header, entries, ...images])
+}
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const outputs = [
   [join(root, 'resources', 'tray.png'), 32],
@@ -149,3 +174,8 @@ for (const [path, size] of outputs) {
   writeFileSync(path, png)
   console.log(`Wrote ${path} (${size}px, ${png.length} bytes)`)
 }
+
+const icoPath = join(root, 'resources', 'icon.ico')
+const ico = makeIco([16, 32, 48, 64, 128, 256])
+writeFileSync(icoPath, ico)
+console.log(`Wrote ${icoPath} (6 sizes, ${ico.length} bytes)`)

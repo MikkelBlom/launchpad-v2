@@ -12,6 +12,7 @@ import { NewProjectModal } from './components/NewProjectModal'
 import { CaptureBar } from './components/CaptureBar'
 import { Sidebar } from './components/Sidebar'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
+import { ErrorBoundary, REQUIRES_API, StaleService } from './components/Fallbacks'
 
 type View = 'dashboard' | 'inbox' | 'activity' | 'ports' | 'settings'
 
@@ -193,10 +194,33 @@ function Shell() {
   )
 }
 
+// Nothing renders until the service has been asked what it is. One request against
+// localhost, and it buys the difference between an explanation and a blank window: assets
+// newer than the service read fields the service does not send, and the first `.map` over
+// one of them takes the whole tree down.
+function Boot() {
+  const [apiVersion, setApiVersion] = useState<number | null>(null)
+
+  useEffect(() => {
+    api
+      .health()
+      .then((h) => setApiVersion(Number(h?.apiVersion) || 0))
+      // Unreachable is not stale — the existing views already handle a service that is down,
+      // so let them, rather than blaming a version for it.
+      .catch(() => setApiVersion(REQUIRES_API))
+  }, [])
+
+  if (apiVersion === null) return null
+  if (apiVersion < REQUIRES_API) return <StaleService apiVersion={apiVersion} />
+  return <Shell />
+}
+
 export default function App() {
   return (
-    <ToastProvider>
-      <Shell />
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <Boot />
+      </ToastProvider>
+    </ErrorBoundary>
   )
 }

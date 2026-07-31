@@ -1,5 +1,44 @@
 # Sessions — Launchpad v2
 
+## 2026-07-31 (later) — White window after a rebuild: the shell was adopting a stale server
+
+**Agent:** Claude Code (Opus 5).
+
+Reported: after `npm run build` + `npm run dist`, the desktop app was a white screen — content
+for a split second on F5, then blank.
+
+**Cause, and it was not the build.** `dist/` was current (13:54); the server was still PID 32456
+from 10:30, serving `apiVersion: 4` and projects with no `ports` array. The new UI fetched them
+and `ProjectCard` mapped over `project.ports` — undefined — which unmounts the entire React tree.
+The split second is the render before the fetch resolves.
+
+**Why rebuilding and relaunching couldn't fix it.** `ensureServer()` opens with
+`if (await isServerUp()) return`, so a relaunched shell *adopts* whatever holds 7420 instead of
+starting the build on disk. And `stopServer()` began `if (!serverChild) return` — in an adopting
+shell that field is null, so tray → **Restart server** killed nothing while reporting success.
+The stale server was unreachable from every control the app offers.
+
+**Fixed, in three layers, because one of them will fail again some day:**
+- `/api/health` now reports `buildTime` (mtime of the running bundle). `ensureServer` compares it
+  with `dist/server/index.js` on disk and *replaces* a server older than the build rather than
+  adopting it. A server with no `buildTime` at all is stale by definition.
+- `stopServer({ includeAdopted: true })` falls back to killing whoever holds the port, but only
+  after `/api/health` confirms it is a Launchpad service. Opt-in, because `before-quit` must keep
+  killing nothing but its own child — otherwise closing a dev window would kill the always-on
+  app's server.
+- The UI stops white-screening: `Boot` checks `apiVersion` before rendering anything and shows
+  "Launchpad needs restarting" with the tray instruction; an `ErrorBoundary` catches any other
+  render crash; `ProjectCard` defaults `project.ports`.
+
+**Verified:** the stale-service screen reproduced against a stand-in service answering v4 with
+old-shape projects (the exact payload that blanked the window) — it now renders the explanation
+instead. Then the real v5 service: dashboard renders, no console errors. `tsc --noEmit` clean.
+
+**Live state left behind:** the stale process was killed and the service restarted on the current
+build; the v6 migration ran on the real database and all 8 claims survived. **The shell fix
+reaches the installed app only through `npm run dist` + reinstall** — `main.cjs` is baked into
+the package, unlike the server and UI, which are read from this repo at runtime.
+
 ## 2026-07-31 — The CLI now names a stale service instead of crashing on it
 
 **Agent:** Claude Code (Opus 5).

@@ -109,6 +109,12 @@ export const api = {
     req<Project>(`/projects/${id}`, { method: 'PATCH', ...body({ liveUrl }) }),
   openLive: (id: number) => req<{ ok: true }>(`/projects/${id}/open-live`, { method: 'POST' }),
 
+  // What the service is, asked before anything else renders — see Boot in App.tsx.
+  health: () =>
+    req<{ ok: boolean; service: string; port: number; apiVersion: number; buildTime: number }>(
+      '/health'
+    ),
+
   // Dev server ports. A project claims one per process it runs.
   ports: () => req<PortOverview>('/ports'),
   checkPort: (port: number, projectId?: number) =>

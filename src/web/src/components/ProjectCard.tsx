@@ -89,7 +89,9 @@ export function ProjectCard({
         )}
         {project.git.dirty && <Badge className="bg-amber-100 text-amber-700">uncommitted</Badge>}
         {project.liveUrl && <Badge className="bg-brand-soft text-brand-strong">live</Badge>}
-        {project.ports.map((claimed) => (
+        {/* Defaulted: a project from a service older than these assets has no `ports` at
+            all, and mapping over undefined here takes the entire dashboard down. */}
+        {(project.ports ?? []).map((claimed) => (
           <Badge key={claimed.port} className="bg-surface-2 font-mono text-ink-soft">
             :{claimed.port}
           </Badge>
@@ -120,7 +122,7 @@ export function ProjectCard({
           {project.devPort && (
             <IconButton
               title={
-                project.ports.length > 1
+                (project.ports ?? []).length > 1
                   ? `Open localhost:${project.devPort} (primary of ${project.ports.length})`
                   : `Open localhost:${project.devPort}`
               }

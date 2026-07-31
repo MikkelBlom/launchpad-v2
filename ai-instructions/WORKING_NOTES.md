@@ -341,7 +341,21 @@ killing the `npm run stop` shell itself, or a neighbouring project's dev server.
 - **Rebuilding is not deploying.** `npm run build` replaces `dist/`, but the running server keeps
   its bundle in memory, and Fastify serves the *new* `dist/web` from disk immediately. New UI +
   old API breaks the whole dashboard (`ProjectCard` maps `project.ports`), not just one page.
-  Always follow a build with tray → **Restart server**.
+  Always follow a build with tray → **Restart server**. Since 2026-07-31 the shell notices by
+  itself: `/api/health` reports `buildTime`, and `ensureServer` replaces a server older than
+  `dist/server/index.js` instead of adopting it.
+- **Three fixes guard the white window, and all three matter.** `Boot` (apiVersion check) turns a
+  mismatch into a sentence; `ErrorBoundary` turns any other render crash into a message; the
+  shell's staleness check stops the mismatch happening. Removing the "redundant" ones is how a
+  blank window comes back — the UI guards also cover a service someone started by hand.
+- **`stopServer({ includeAdopted })` is opt-in on purpose.** Restart-server and change-folder pass
+  it; `before-quit` must not, or closing a second shell kills the always-on app's server. Without
+  the fallback, though, a shell that *adopted* a server has nothing to kill and Restart server is
+  a silent no-op — which is exactly how a stale server became unreachable from the UI.
+- **The shell is the one part that does not hot-reload.** `dist/server` and `dist/web` are read
+  from this repo at runtime, so a rebuild reaches the installed app on the next restart. Changes
+  to `electron/*.cjs` are baked into `app.asar` at package time and need `npm run dist` **and a
+  reinstall**. Say so explicitly whenever a fix lands in the shell.
 - The CLI sends `Connection: close` and ends errors with `process.exitCode = 1` rather than
   `exit(1)`. Both exist for the same reason: on Windows, exiting with a keep-alive socket still
   open makes libuv abort *after* the error is printed, turning exit 1 into 127. Don't "tidy" it

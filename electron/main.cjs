@@ -2,8 +2,8 @@
 // bundled Node lacks node:sqlite. Instead it spawns the Launchpad server under the
 // system Node (24+) as a child process, then hosts a window pointing at localhost.
 const { app, BrowserWindow, Tray, Menu, dialog, shell, nativeImage } = require('electron')
-const { spawn } = require('node:child_process')
-const { existsSync } = require('node:fs')
+const { execFileSync, spawn } = require('node:child_process')
+const { existsSync, statSync } = require('node:fs')
 const { join } = require('node:path')
 const { SHELL_ROOT, isAppDir, resolveAppRoot, saveAppDir, shellConfigPath } = require('./appRoot.cjs')
 
@@ -140,7 +140,8 @@ async function changeAppFolder() {
   const previous = APP_ROOT
   if (!(await pickAppFolder()) || APP_ROOT === previous) return
   refreshTray() // the menu states the folder, so it has to be rebuilt
-  stopServer()
+  // Adopted or not, a server serving the folder we just left has to go.
+  await stopServer({ includeAdopted: true })
   await waitForServerDown()
   await ensureServer()
   reloadUi()
@@ -166,8 +167,49 @@ function serverCommand() {
   return ['node', ['--import', 'tsx', q(join(APP_ROOT, 'src', 'server', 'index.ts'))]]
 }
 
+// The mtime of the build on disk, i.e. what a freshly spawned server would be running.
+function builtServerMtime() {
+  try {
+    return Math.round(statSync(join(APP_ROOT, 'dist', 'server', 'index.js')).mtimeMs)
+  } catch {
+    return 0
+  }
+}
+
+async function serverHealth() {
+  try {
+    const res = await fetch(`http://localhost:${PORT}/api/health`)
+    return res.ok ? await res.json() : null
+  } catch {
+    return null
+  }
+}
+
+// Is the server that answered older than the build sitting on disk? `buildTime` is absent on
+// any server predating it, which is itself proof of staleness — that server cannot be newer
+// than the field that reports it. A second of slack keeps filesystem timestamp granularity
+// from reading as a difference.
+function serverIsStale(health) {
+  const onDisk = builtServerMtime()
+  if (!onDisk) return false // running from source; nothing to compare against
+  return onDisk > Number(health?.buildTime ?? 0) + 1000
+}
+
 async function ensureServer() {
-  if (await isServerUp()) return // already running (e.g. autostarted separately, or npm run dev)
+  const health = await serverHealth()
+  if (health) {
+    // Adopting whatever holds the port is right for a server we started at login or through
+    // `npm run dev` — and wrong for one left over from before a rebuild. That case used to be
+    // unrecoverable from the UI: the shell adopted it, `serverChild` stayed null, so Restart
+    // server had nothing to kill, and the window went white on the shape mismatch.
+    if (!DEV && serverIsStale(health)) {
+      console.warn('[launchpad] a server older than dist/server is on :' + PORT + ' — replacing it')
+      await stopServer({ includeAdopted: true })
+      await waitForServerDown()
+    } else {
+      return
+    }
+  }
   if (DEV) {
     // Don't spawn a competitor for port 7420 — wait for the one `npm run dev` starts.
     console.warn('[launchpad] dev mode: waiting for the server from `npm run dev` on :' + PORT)
@@ -189,22 +231,62 @@ async function ensureServer() {
   await waitForServer()
 }
 
-// Kill the server process tree. Windows needs /T to reach the shell:true wrapper's child.
-function stopServer() {
-  if (!serverChild || !serverChild.pid) return
+// Whoever is listening on the port, according to the OS rather than to our own bookkeeping.
+function pidOnPort(port) {
   try {
-    spawn('taskkill', ['/pid', String(serverChild.pid), '/T', '/F'], { shell: true })
+    const out = execFileSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' })
+    for (const line of out.split('\n')) {
+      if (!line.includes('LISTENING')) continue
+      const parts = line.trim().split(/\s+/)
+      const local = parts[1] ?? ''
+      if (local.slice(local.lastIndexOf(':') + 1) !== String(port)) continue
+      const pid = Number(parts[parts.length - 1])
+      if (Number.isInteger(pid) && pid > 0) return pid
+    }
+  } catch {
+    /* netstat missing or blocked */
+  }
+  return null
+}
+
+function killTree(pid) {
+  try {
+    // /T so the shell:true wrapper's real child dies too, /F because a polite ask is ignored.
+    execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
   } catch {
     /* already gone */
   }
-  serverChild = null
+}
+
+// Kill the server process tree. Windows needs /T to reach the shell:true wrapper's child.
+//
+// `includeAdopted` extends that to a server this shell did not start. A shell that adopted a
+// running server (see ensureServer) has `serverChild === null`, and without the fallback
+// "Restart server" silently did nothing — the worst kind of failure, because the menu item
+// reports success either way. The port's owner is only killed once /api/health has confirmed
+// it is a Launchpad service, so an unrelated process holding 7420 is left alone.
+//
+// It stays opt-in because quitting must NOT use it: closing a dev window has to leave the
+// always-on app (and `npm run dev`) running, which is only true while quit kills nothing but
+// its own child.
+async function stopServer({ includeAdopted = false } = {}) {
+  if (serverChild && serverChild.pid) {
+    killTree(serverChild.pid)
+    serverChild = null
+    return
+  }
+  if (!includeAdopted) return
+  const health = await serverHealth()
+  if (health?.service !== 'launchpad') return
+  const pid = pidOnPort(PORT)
+  if (pid && pid !== process.pid) killTree(pid)
 }
 
 // Pick up a rebuilt server without quitting the app. In dev this is a no-op beyond the reload,
 // because tsx watch has already restarted the server itself by the time you click.
 async function restartServer() {
   if (!DEV) {
-    stopServer()
+    await stopServer({ includeAdopted: true })
     await waitForServerDown()
     await ensureServer()
   }

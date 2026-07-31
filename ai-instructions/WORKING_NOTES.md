@@ -333,6 +333,15 @@ killing the `npm run stop` shell itself, or a neighbouring project's dev server.
   one port is a state the app must be able to display and the user must be able to fix; refusing
   *new* collisions is the service's job. A unique index on `port` would also have made migration
   v6 fail on the live database, which already had three projects on 3000.
+- **`apiVersion` is a contract, and the CLI enforces it.** `REQUIRES_API` in `cli/launchpad.mjs`
+  must move in step with `apiVersion` in `routes/system.ts` whenever the CLI starts depending on
+  a new server shape. Without the check, a service running an older build answers with fields
+  the CLI then maps over, and the user gets `Cannot read properties of undefined` instead of
+  "rebuild and restart" — which is what happened on 2026-07-31.
+- **Rebuilding is not deploying.** `npm run build` replaces `dist/`, but the running server keeps
+  its bundle in memory, and Fastify serves the *new* `dist/web` from disk immediately. New UI +
+  old API breaks the whole dashboard (`ProjectCard` maps `project.ports`), not just one page.
+  Always follow a build with tray → **Restart server**.
 - The CLI sends `Connection: close` and ends errors with `process.exitCode = 1` rather than
   `exit(1)`. Both exist for the same reason: on Windows, exiting with a keep-alive socket still
   open makes libuv abort *after* the error is printed, turning exit 1 into 127. Don't "tidy" it

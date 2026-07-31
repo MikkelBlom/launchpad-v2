@@ -10,6 +10,16 @@ import { dirname, join, parse as parsePath, resolve as resolvePath } from 'node:
 import { argv, cwd, env, exit, platform, stdout } from 'node:process'
 
 const BASE = (env.LAUNCHPAD_URL || 'http://localhost:7420').replace(/\/$/, '')
+
+// The API this CLI is written against. v5 moved /api/ports from one row per project to one
+// row per claim, so an older service answers every ports command with a shape whose fields
+// simply aren't there — and the CLI's first `.map` over one of them throws a TypeError that
+// says nothing about the actual problem: a service running a build older than this file.
+// `apiVersion` exists precisely so that mismatch can be named instead of crashed on.
+//
+// Bump this whenever the CLI starts depending on a new server shape, in step with the
+// apiVersion in routes/system.ts.
+const REQUIRES_API = 5
 const BINDING_FILE = join('ai-instructions', '.launchpad.json')
 const SNAPSHOT_FILE = join('ai-instructions', '.launchpad-snapshot.json')
 
@@ -199,6 +209,24 @@ const orNull404 = async (path) => {
     if (e.status === 404) return null
     throw e
   }
+}
+
+// One /api/health before the command runs. A stale service is the difference between a
+// sentence you can act on and a stack trace, and the request costs a few milliseconds
+// against localhost.
+function tooOldMessage(version) {
+  return (
+    `This Launchpad speaks API v${version || '?'}; this CLI needs v${REQUIRES_API}.\n` +
+    `  The service is running a build older than the CLI — rebuild it and restart:\n` +
+    `    npm run build            (in launchpad-v2)\n` +
+    `    then the tray icon → Restart server   (or: npm run desktop)\n` +
+    `  Rebuilding alone is not enough: the running process keeps the old bundle in memory.`
+  )
+}
+
+async function assertApiVersion() {
+  const version = Number((await getJson('/api/health'))?.apiVersion) || 0
+  if (version < REQUIRES_API) throw new CliError(tooOldMessage(version))
 }
 
 const resolveByPath = (dir) => orNull404(`/api/projects/resolve?path=${encodeURIComponent(dir)}`)
@@ -495,7 +523,13 @@ async function cmdGuide() {
 
 async function cmdPing() {
   const health = await getJson('/api/health')
-  emit(health, () => out(`✓ Launchpad is up at ${BASE}  (api v${health.apiVersion})`))
+  const stale = (Number(health?.apiVersion) || 0) < REQUIRES_API
+  emit({ ...health, cliRequiresApi: REQUIRES_API, stale }, () => {
+    out(`✓ Launchpad is up at ${BASE}  (api v${health.apiVersion})`)
+    // "Up" and "usable" are different questions, and ping is where the difference should
+    // surface — it is the command someone runs when something else has already gone wrong.
+    if (stale) out(`! ${tooOldMessage(health.apiVersion).split('\n').join('\n  ')}`)
+  })
 }
 
 async function cmdWhoami() {
@@ -761,19 +795,26 @@ async function cmdTag(positional) {
 // ---------------------------------------------------------------- commands: ports
 
 function printPortOverview(overview) {
-  const claimedSet = new Set(overview.claims.map((c) => c.port))
+  // Defaulted rather than assumed: the version guard in main() should have caught an old
+  // service long before here, but a missing field must degrade to "nothing claimed", never
+  // to a TypeError about `.map` of undefined that hides what actually went wrong.
+  const claims = overview?.claims ?? []
+  const unclaimed = overview?.unclaimed ?? []
+  const listening = overview?.listening ?? []
+  const suggested = overview?.suggested ?? []
+  const claimedSet = new Set(claims.map((c) => c.port))
 
-  if (overview.claims.length === 0) {
+  if (claims.length === 0) {
     out('No project claims a dev port yet.  →  launchpad ports detect')
   } else {
-    const width = Math.max(...overview.claims.map((c) => c.projectName.length))
+    const width = Math.max(...claims.map((c) => c.projectName.length))
     out('Project dev ports')
-    for (const c of overview.claims) {
+    for (const c of claims) {
       const label = c.label ? `  [${c.label}]` : ''
       const source = c.source ? `  (${c.source})` : ''
       const flags = [
         c.reserved ? '! reserved — permanently taken on this machine' : '',
-        c.conflictsWith.length > 0 ? `! also claimed by ${c.conflictsWith.join(', ')}` : ''
+        (c.conflictsWith ?? []).length > 0 ? `! also claimed by ${c.conflictsWith.join(', ')}` : ''
       ].filter(Boolean)
       out(
         `  #${String(c.projectId).padEnd(3)} ${c.projectName.padEnd(width)}  ${String(c.port).padEnd(5)} ` +
@@ -782,16 +823,16 @@ function printPortOverview(overview) {
     }
   }
 
-  if (overview.unclaimed.length > 0) {
+  if (unclaimed.length > 0) {
     out('')
-    out(`No port claimed (${overview.unclaimed.length})`)
-    out(`  ${overview.unclaimed.map((p) => p.name).join(', ')}`)
+    out(`No port claimed (${unclaimed.length})`)
+    out(`  ${unclaimed.map((p) => p.name).join(', ')}`)
     out('  → launchpad ports detect --project "<name>"')
   }
 
   // Everything else holding a port on this machine — the answer to "what is on 4200?"
   // Windows hands out 49152+ to outbound sockets and RPC, so those are noise, not servers.
-  const foreign = overview.listening.filter((port) => !claimedSet.has(port))
+  const foreign = listening.filter((port) => !claimedSet.has(port))
   const notable = foreign.filter((port) => port < 49152)
   if (notable.length > 0) {
     out('')
@@ -802,7 +843,7 @@ function printPortOverview(overview) {
   }
 
   out('')
-  out(`Free to claim: ${overview.suggested.join(', ') || '(none found)'}`)
+  out(`Free to claim: ${suggested.join(', ') || '(none found)'}`)
 }
 
 async function cmdPorts(positional) {
@@ -844,13 +885,15 @@ async function cmdPorts(positional) {
     const project = await resolveProject(FLAGS)
     const result = await post(`/api/projects/${project.id}/detect-port`)
     emit(result, () => {
-      for (const claim of result.claimed) {
+      const claimed = result?.claimed ?? []
+      const skipped = result?.skipped ?? []
+      for (const claim of claimed) {
         out(`✓ "${project.name}" claims http://localhost:${claim.port}  (from ${claim.source})`)
       }
-      for (const skip of result.skipped) {
+      for (const skip of skipped) {
         out(`✗ ${skip.port} declared in ${skip.source} but not claimed: ${skip.reason}`)
       }
-      if (result.claimed.length === 0 && result.skipped.length === 0) {
+      if (claimed.length === 0 && skipped.length === 0) {
         out(`No dev port declared in "${project.name}"'s config files.`)
         out('  → launchpad ports free, then: launchpad ports add <number>')
       }
@@ -1214,6 +1257,9 @@ async function main() {
     exit(1)
   }
   try {
+    // `guide` is offline text and `ping` is the diagnostic that has to answer *whatever*
+    // the service turns out to be — everything else needs a service it can actually talk to.
+    if (command !== 'guide' && command !== 'ping') await assertApiVersion()
     await handler(positional)
   } catch (e) {
     console.error(`✗ ${e.message}`)

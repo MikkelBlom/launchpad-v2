@@ -1,5 +1,36 @@
 # Sessions — Launchpad v2
 
+## 2026-07-31 — The CLI now names a stale service instead of crashing on it
+
+**Agent:** Claude Code (Opus 5).
+
+Reported: `launchpad ports` → `Cannot read properties of undefined (reading 'map')`, and
+`launchpad ports detect` → `result.claimed is not iterable`.
+
+**Cause:** the service was still serving the previous build. `/api/health` said `apiVersion: 4`
+and `/api/ports` still returned `{projects, listening, suggested}`, so the v5 CLI read
+`overview.claims` and `result.claimed` off an object that has neither. `dist/server/index.js`
+was dated before the ports commit while the node process had started that morning — a restart
+of a build that had never been run.
+
+**The actual defect** is not the mismatch; it is that the mismatch was unreadable. `apiVersion`
+exists so a CLI can detect a Launchpad older than the commands it knows, it was bumped to 5, and
+nothing checked it. Fixed: `REQUIRES_API = 5` in the CLI, one `/api/health` before dispatch
+(skipped for `guide`/`ping`), and a message that says rebuild **and** restart — because
+rebuilding alone leaves the old bundle in memory, which is exactly what happened here. `ping`
+reports the same thing rather than printing a version and leaving the reader to compare. The two
+crash sites also default their fields now, so a half-upgraded service degrades instead of
+throwing.
+
+**Verified** against the live v4 service (all three commands print the instruction, exit 1) and
+against the new build on a copy of the live database (`ports`, `ports detect`, and every way of
+re-claiming 8081: for its current owner → idempotent, with a label → updates in place, for
+another project → 409 with `--force` offered).
+
+**Note for next time:** `npm run build` while the service is running puts the *new* UI in front
+of the *old* API, and `ProjectCard` maps over `project.ports`, which a v4 service does not send —
+so the dashboard breaks, not just the ports page. Build and restart together.
+
 ## 2026-07-30 (latest) — A project can claim many ports, and claiming is enforced
 
 **Agent:** Claude Code (Opus 5).

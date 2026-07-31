@@ -147,7 +147,7 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           </label>
           <Button variant="primary" onClick={scan} disabled={scanning}><IconRefresh /> {scanning ? 'Scanning…' : 'Scan now'}</Button>
         </div>
-        {scanResult && <ScanReport result={scanResult} />}
+        {scanResult && <ScanReport result={scanResult} onChanged={onChanged} />}
       </section>
 
       <section className={`${card} space-y-4`}>
@@ -359,11 +359,14 @@ function scanSummary(result: DiscoveryResult): string {
 
 // "No projects found" on its own is useless — show which root produced what, and call
 // out roots that aren't on disk, since that is the usual reason a scan comes back empty.
-function ScanReport({ result }: { result: DiscoveryResult }) {
+function ScanReport({ result, onChanged }: { result: DiscoveryResult; onChanged: () => void }) {
   const roots = Array.isArray(result.roots) ? result.roots : []
   const missing = roots.filter((r) => !r.exists)
   const present = roots.filter((r) => r.exists)
   const added = Array.isArray(result.added) ? result.added : []
+  const skipped = Array.isArray(result.skipped) ? result.skipped : []
+  const empty = skipped.filter((s) => s.kind === 'empty')
+  const unrecognised = skipped.filter((s) => s.kind !== 'empty')
 
   return (
     <div className="mt-3 space-y-2 rounded-lg bg-surface-1 p-3 text-sm">
@@ -387,14 +390,28 @@ function ScanReport({ result }: { result: DiscoveryResult }) {
         </div>
       )}
       <ImportLine label="Added" items={added} tone="text-brand-strong" />
+      {/* An empty folder sitting in a project root is a project someone started making and
+          hasn't put anything in yet. Saying "skipped" and stopping there is the wrong answer;
+          the right one is to offer to fill it in. */}
+      {empty.length > 0 && (
+        <div className="space-y-1.5 rounded-lg border border-brand-soft bg-brand-soft/40 p-2.5">
+          <p className="font-medium text-brand-strong">
+            {empty.length === 1 ? 'An empty folder is' : `${empty.length} empty folders are`} waiting
+            to be initialised
+          </p>
+          {empty.map((s) => (
+            <EmptyFolderRow key={s.path} path={s.path} onInitialized={onChanged} />
+          ))}
+        </div>
+      )}
       {/* The folder someone came here looking for is usually one of these. Naming it, with
           the reason, is the difference between "the scan is broken" and "ah, it's empty". */}
-      {Array.isArray(result.skipped) && result.skipped.length > 0 && (
+      {unrecognised.length > 0 && (
         <div className="space-y-0.5">
           <p className="font-medium text-ink-soft">
-            Skipped — not a project ({result.skipped.length}):
+            Skipped — not a project ({unrecognised.length}):
           </p>
-          {result.skipped.map((s) => (
+          {unrecognised.map((s) => (
             <p key={s.path} className="text-xs text-ink-faint">
               <span className="font-mono">{s.path.split(/[\\/]/).pop()}</span> — {s.reason}
             </p>
@@ -405,6 +422,57 @@ function ScanReport({ result }: { result: DiscoveryResult }) {
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+// Initialising writes into a folder on disk, so it names exactly what it will put there
+// rather than acting on a bare "Yes".
+function EmptyFolderRow({ path, onInitialized }: { path: string; onInitialized: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const toast = useToast()
+  const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path
+  const parentPath = path.slice(0, path.length - name.length).replace(/[\\/]+$/, '')
+
+  const initialize = async () => {
+    setBusy(true)
+    try {
+      const result = await api.scaffold({ name, parentPath, initGit: true })
+      setDone(true)
+      toast(
+        result.warnings.length > 0
+          ? `Initialised ${name} — ${result.warnings[0]}`
+          : `Initialised ${name}`,
+        result.warnings.length > 0 ? 'error' : 'ok'
+      )
+      onInitialized()
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (done) {
+    return (
+      <p className="text-xs text-brand-strong">
+        <span className="font-mono">{name}</span> — initialised and registered.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-soft" title={path}>
+        {name}
+      </span>
+      <span className="text-xs text-ink-faint">
+        README, .gitignore, ai-instructions/, git init
+      </span>
+      <Button variant="subtle" disabled={busy} onClick={() => void initialize()}>
+        {busy ? 'Initialising…' : 'Initialise as project'}
+      </Button>
     </div>
   )
 }

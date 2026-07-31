@@ -282,7 +282,10 @@ export interface DiscoveryResult {
   // Folders sitting directly under a root that discovery did not recognise, and why. A scan
   // that reports only what it took leaves "so where is my folder?" unanswerable — which is
   // exactly the question someone asks after creating one and scanning.
-  skipped: Array<{ path: string; reason: string }>
+  //
+  // `kind` is what the UI acts on: an *empty* folder under a project root is almost always a
+  // project someone started making, so it gets an offer to initialise rather than a shrug.
+  skipped: Array<{ path: string; reason: string; kind: 'empty' | 'unrecognised' }>
   message: string
 }
 

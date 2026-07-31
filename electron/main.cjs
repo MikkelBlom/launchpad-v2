@@ -33,6 +33,20 @@ let tray = null
 let win = null
 let serverChild = null
 let quitting = false
+// The server's last words, kept so a failure can be explained instead of guessed at.
+let lastServerError = ''
+let serverRestarts = 0
+let reportingFailure = false
+
+// Thrown when the service could not be brought up. Carries the server's own stderr, which is
+// almost always the actual answer ("EADDRINUSE", "node is not recognized", a stack trace).
+class ServerStartError extends Error {
+  constructor(detail) {
+    super(detail || 'The Launchpad service did not start, and said nothing about why.')
+    this.name = 'ServerStartError'
+    this.detail = detail
+  }
+}
 // Mirror of AppSettings.startAtLogin. Seeded from Windows so the tray shows something
 // truthful before the service answers, then kept in step with the database.
 let startAtLogin = false
@@ -143,7 +157,13 @@ async function changeAppFolder() {
   // Adopted or not, a server serving the folder we just left has to go.
   await stopServer({ includeAdopted: true })
   await waitForServerDown()
-  await ensureServer()
+  serverRestarts = 0
+  try {
+    await ensureServer()
+  } catch (error) {
+    await reportServerFailure(String(error && error.message ? error.message : error))
+    return
+  }
   reloadUi()
 }
 
@@ -222,13 +242,92 @@ async function ensureServer() {
     cwd: APP_ROOT,
     shell: true,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },
-    stdio: 'ignore',
+    // stderr is kept, not ignored: when the server dies on startup its last words are the
+    // only explanation anyone will ever get, and a window silently retrying forever is what
+    // "the app doesn't work" looks like from the outside.
+    stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true
   })
-  serverChild.on('exit', () => {
+  lastServerError = ''
+  serverChild.stderr?.on('data', (chunk) => {
+    lastServerError = `${lastServerError}${chunk}`.slice(-2000)
+    process.stderr.write(`[launchpad:server] ${chunk}`)
+  })
+  // spawn() reports a missing executable asynchronously; without this handler a Node that
+  // isn't on PATH looks exactly like a server that simply never came up.
+  serverChild.on('error', (error) => {
+    lastServerError = `could not start node: ${error.message}`
     serverChild = null
   })
-  await waitForServer()
+  serverChild.on('exit', (code) => {
+    const wasOurs = serverChild !== null
+    serverChild = null
+    // Quitting, or a deliberate stop/restart, is not a crash.
+    if (quitting || !wasOurs) return
+    if (code !== 0) superviseRestart(code)
+  })
+  const up = await waitForServer()
+  if (!up) throw new ServerStartError(lastServerError.trim())
+  serverRestarts = 0
+  return
+}
+
+// A crashed server used to leave the app looking alive and doing nothing: the window kept
+// retrying a URL nothing was listening on. Bring it back a few times, then stop and say so
+// rather than restarting forever.
+const MAX_SERVER_RESTARTS = 3
+
+function superviseRestart(code) {
+  if (serverRestarts >= MAX_SERVER_RESTARTS) {
+    reportServerFailure(
+      `The Launchpad service stopped ${serverRestarts + 1} times (last exit code ${code}).`
+    )
+    return
+  }
+  serverRestarts++
+  console.warn(`[launchpad] server exited (code ${code}) — restart ${serverRestarts}`)
+  setTimeout(() => {
+    void ensureServer()
+      .then(() => reloadUi())
+      .catch((error) => reportServerFailure(String(error && error.message ? error.message : error)))
+  }, 500 * serverRestarts)
+}
+
+// The app is a window onto a service; with no service there is nothing to show. Say what
+// happened, offer the two things that actually fix it, and keep the tray alive either way.
+async function reportServerFailure(detail) {
+  if (reportingFailure) return
+  reportingFailure = true
+  try {
+    const built = join(APP_ROOT ?? '', 'dist', 'server', 'index.js')
+    const hint = existsSync(built)
+      ? `Tried to run:\n  node "${built}"\n\nThat usually means Node 24+ isn't on PATH for this app, or the port is taken by something else.`
+      : `There is no server build at:\n  ${built}\n\nRun \`npm run build\` in the app folder.`
+    const { response } = await dialog.showMessageBox({
+      type: 'error',
+      title: 'Launchpad service did not start',
+      message: "Launchpad's local service isn't running, so there is nothing for the window to show.",
+      detail: `${detail ? `${detail}\n\n` : ''}${hint}\n\nApp folder: ${APP_ROOT ?? '(unresolved)'}`,
+      buttons: ['Try again', 'Change app folder…', 'Close'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true
+    })
+    reportingFailure = false
+    if (response === 0) {
+      serverRestarts = 0
+      try {
+        await ensureServer()
+        reloadUi()
+      } catch (error) {
+        await reportServerFailure(String(error && error.message ? error.message : error))
+      }
+    } else if (response === 1) {
+      await changeAppFolder()
+    }
+  } finally {
+    reportingFailure = false
+  }
 }
 
 // Whoever is listening on the port, according to the OS rather than to our own bookkeeping.
@@ -288,7 +387,13 @@ async function restartServer() {
   if (!DEV) {
     await stopServer({ includeAdopted: true })
     await waitForServerDown()
-    await ensureServer()
+    serverRestarts = 0
+    try {
+      await ensureServer()
+    } catch (error) {
+      await reportServerFailure(String(error && error.message ? error.message : error))
+      return
+    }
   }
   reloadUi()
 }
@@ -457,8 +562,19 @@ function createWindow() {
   })
 
   // If the UI/server isn't ready yet, retry the load shortly.
+  // A failed load means nothing is answering on localhost, and reloading the same dead URL
+  // forever is not a recovery strategy — it is what "I opened the app and it does nothing"
+  // looked like. Put the service back first, then reload.
   win.webContents.on('did-fail-load', () => {
-    setTimeout(() => win && win.loadURL(uiUrl()), 800)
+    setTimeout(() => {
+      if (!win) return
+      void ensureServer()
+        .then(() => win && win.loadURL(uiUrl()))
+        .catch((error) => {
+          if (win) win.loadURL(uiUrl())
+          void reportServerFailure(String(error && error.message ? error.message : error))
+        })
+    }, 800)
   })
 
   // Closing the window hides to tray; the server keeps running so localhost stays live.
@@ -593,7 +709,14 @@ if (!app.requestSingleInstanceLock()) {
 
     startAtLogin = readLoginItem()
     createTray()
-    await ensureServer()
+    // Starting the service IS the app's job — the whole point of the desktop entry is that
+    // opening it gives you a working Launchpad, not a window plus a terminal command. If it
+    // can't, that is a failure worth a dialog, not a blank window retrying in silence.
+    try {
+      await ensureServer()
+    } catch (error) {
+      void reportServerFailure(String(error && error.message ? error.message : error))
+    }
     // Only once the service is up can the database say what start-at-login should be.
     // If it never comes up, the login item is left untouched rather than guessed at.
     await reconcileStartAtLogin()

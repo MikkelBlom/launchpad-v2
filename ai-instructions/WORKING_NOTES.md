@@ -365,6 +365,17 @@ killing the `npm run stop` shell itself, or a neighbouring project's dev server.
   it; `before-quit` must not, or closing a second shell kills the always-on app's server. Without
   the fallback, though, a shell that *adopted* a server has nothing to kill and Restart server is
   a silent no-op — which is exactly how a stale server became unreachable from the UI.
+- **The shell owns the service's lifetime, not just its start.** `ensureServer()` used to run
+  once and never again, so a server that died left a window retrying a dead URL in silence — the
+  failure Mikkel described as "I have to open the app *and* the port". The child is now
+  supervised (respawn on unexpected exit, 3 attempts with backoff), `did-fail-load` re-ensures
+  the server before reloading, and a real failure raises a dialog carrying the server's own
+  stderr. Keep `stdio` on stderr: `'ignore'` is what made "node isn't on PATH" and "the server
+  crashed" look identical.
+- **If `npm run desktop` dies with ENOENT on `electron.exe`,** Bitdefender has quarantined it —
+  the rest of `node_modules/electron/dist` will still be there, executable missing. Restore with
+  `node node_modules/electron/install.js` (unpacks from `%LOCALAPPDATA%\electron\Cache`, no
+  download). `npm run dist` keeps working throughout: electron-builder uses its own cache.
 - **The shell is the one part that does not hot-reload.** `dist/server` and `dist/web` are read
   from this repo at runtime, so a rebuild reaches the installed app on the next restart. Changes
   to `electron/*.cjs` are baked into `app.asar` at package time and need `npm run dist` **and a

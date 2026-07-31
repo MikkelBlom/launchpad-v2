@@ -1,5 +1,42 @@
 # Sessions — Launchpad v2
 
+## 2026-07-31 (end of day) — The app starts its own service, and empty folders get an offer
+
+**Agent:** Claude Code (Opus 5).
+
+Two things Mikkel was right to be annoyed about.
+
+**"Opening the desktop app should start the server. That is the reason it exists."** It did —
+once, at startup, and never again. `ensureServer()` ran in `whenReady`, and nothing supervised
+the child afterwards: a server that died left the window retrying `did-fail-load` against a dead
+URL forever, with no restart and no message. Reproduced exactly: the shell had been running since
+13:56 with nothing listening on 7420. Worse, the spawn used `stdio: 'ignore'` and had no `error`
+handler, so a Node that isn't on PATH was indistinguishable from a server that just never came up.
+
+Now: stderr is captured and logged, `spawn` has an `error` handler, an unexpected exit respawns
+the server (up to 3 times, backing off) and reloads the UI, `did-fail-load` calls `ensureServer()`
+before retrying the URL, and a genuine failure raises a dialog naming the command it tried, the
+app folder, and the server's own last words — with **Try again** / **Change app folder…** buttons.
+Startup no longer proceeds silently past a service that failed to start.
+
+Verified by running the shell cold: 7420 empty before launch, live after; then killing the server
+with the app open and watching it come back as a new PID (8912 → 26808, "server exited (code
+4294967295) — restart 1" in the log), with exactly one server left running.
+
+**"A folder in the projects root is there because I want a project there. If it's empty, prompt
+me."** Discovery now tags each skipped folder `empty` or `unrecognised`. Empty ones lead the scan
+message ("1 empty folder waiting to be initialised: VintageStoryMap") and get their own block in
+the Settings scan report with an **Initialise as project** button that states what it will write
+before you press it. `scaffoldProject` already accepted an existing empty folder, so this is
+plumbing, not new file-writing behaviour. Verified end to end on a throwaway folder: README,
+.gitignore, ai-instructions/, git init, registered.
+
+**Side finding: `node_modules/electron/dist/electron.exe` had been quarantined** — the whole dist
+folder was intact except the executable, which is the Bitdefender signature this repo has hit
+before. `npm run desktop` and `npm run dev:app` fail with ENOENT until it is restored:
+`node node_modules/electron/install.js` re-unpacks it from the cache (no download needed).
+`npm run dist` is unaffected — electron-builder uses its own cache.
+
 ## 2026-07-31 (last) — Discovery now says what it skipped, and deletes leave a trace
 
 **Agent:** Claude Code (Opus 5).

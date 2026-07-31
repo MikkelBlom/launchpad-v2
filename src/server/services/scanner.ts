@@ -277,12 +277,22 @@ function describe(result: Omit<DiscoveryResult, 'message'>): string {
   }
   // Named, not just counted: the folder someone is looking for is the whole reason they
   // pressed Scan, and "1 folder was skipped" would send them hunting for which.
-  if (result.skipped.length > 0) {
-    const names = result.skipped.map((s) => basename(s.path))
+  const empty = result.skipped.filter((s) => s.kind === 'empty')
+  const unrecognised = result.skipped.filter((s) => s.kind !== 'empty')
+  // An empty folder under a project root is a project someone started making, so it leads —
+  // it is the one entry here that comes with something to do about it.
+  if (empty.length > 0) {
+    const names = empty.map((s) => basename(s.path))
+    parts.push(
+      `${plural(empty.length, 'empty folder')} waiting to be initialised: ${names.join(', ')}.`
+    )
+  }
+  if (unrecognised.length > 0) {
+    const names = unrecognised.map((s) => basename(s.path))
     parts.push(
       names.length <= 4
         ? `Skipped ${names.join(', ')} — not a project folder.`
-        : `Skipped ${result.skipped.length} folders that don't look like projects.`
+        : `Skipped ${unrecognised.length} folders that don't look like projects.`
     )
   }
   return parts.join(' ')
@@ -315,7 +325,7 @@ export async function discoverProjects(): Promise<DiscoveryResult> {
   const seen = new Set<string>()
   const added: string[] = []
   const rootReports: RootReport[] = []
-  const skipped: Array<{ path: string; reason: string }> = []
+  const skipped: DiscoveryResult['skipped'] = []
   let scanned = 0
   let skippedExisting = 0
 
@@ -323,10 +333,17 @@ export async function discoverProjects(): Promise<DiscoveryResult> {
   // someone creates and then expects to see. Everything deeper is the inside of a project.
   const MAX_SKIPPED = 25
 
-  function whyNotAProject(dir: string): string {
+  function whyNotAProject(dir: string): DiscoveryResult['skipped'][number] {
     const entries = lowerEntrySet(dir)
-    if (entries.size === 0) return 'the folder is empty'
-    return 'no .git, no manifest (package.json, .sln, pyproject.toml, …), no README, too few source files — and nothing inside it looks like a project either'
+    if (entries.size === 0) {
+      return { path: dir, kind: 'empty', reason: 'the folder is empty — nothing to detect yet' }
+    }
+    return {
+      path: dir,
+      kind: 'unrecognised',
+      reason:
+        'no .git, no manifest (package.json, .sln, pyproject.toml, …), no README, too few source files — and nothing inside it looks like a project either'
+    }
   }
 
   function record(normalized: string, report: RootReport): void {
@@ -370,7 +387,7 @@ export async function discoverProjects(): Promise<DiscoveryResult> {
       const before = report.candidates
       walk(full, depth + 1, report)
       if (depth === 1 && report.candidates === before && skipped.length < MAX_SKIPPED) {
-        skipped.push({ path: normalized, reason: whyNotAProject(full) })
+        skipped.push({ ...whyNotAProject(full), path: normalized })
       }
     }
   }

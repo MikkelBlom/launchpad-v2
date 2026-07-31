@@ -1,5 +1,38 @@
 # Sessions — Launchpad v2
 
+## 2026-07-31 (last) — Discovery now says what it skipped, and deletes leave a trace
+
+**Agent:** Claude Code (Opus 5).
+
+Mikkel corrected the earlier note: the project the scan was supposed to find was
+**VintageStoryMap**, not LittleBigMouse.
+
+**Not a bug, but not visible either.** `C:\…\Projects\VintageStoryMap` is completely empty —
+0 entries including hidden, created 11:30 and never written to. `looksLikeProject` returns false
+on an empty folder (scanner.ts, `entries.size === 0`), so `walk` descends into it, finds nothing
+and never mentions it. The scan then reported "17 project folders, 17 already registered, added
+0", which is true and useless for "where is my folder?".
+
+`DiscoveryResult` now carries `skipped: Array<{ path, reason }>` for top-level folders that
+yielded nothing, with the reason spelled out ("the folder is empty" / "no .git, no manifest, no
+README, too few source files — and nothing inside it looks like a project either"). Reported in
+the scan message, listed in the Settings scan report with the `launchpad register` escape hatch.
+A folder is only called skipped if walking it produced no projects, so containers like
+`Unity Projects` aren't slandered. Live scan now ends: *"Skipped Unity Projects, VintageStoryMap
+— not a project folder."*
+
+**Deletes were invisible.** While working, three registrations (#14/#16/#24 — Airline Game, CMS,
+LittleBigMouse, all with zero items) disappeared and were re-created by a later scan as #25/#26/
+#27. I could not determine what removed them, because **none of the three delete paths recorded
+anything**: `DELETE /projects/:id`, `/projects/bulk-delete`, and the duplicate merge all dropped
+rows silently. For a project whose stated principle is "archive, never delete", the one
+destructive act the UI allows left no trace at all. All three now write a `deleted` change naming
+the project, its path and what went with it; `mergeProjects` returns the registrations it removed
+so the route can log each one. Verified on a throwaway project.
+
+Nothing of value was lost — the three had no notes, ideas or tasks, and the recovered data from
+earlier today is intact (8 projects, verified after the fact).
+
 ## 2026-07-31 (latest) — A shadow database, and ports that were never machine facts
 
 **Agent:** Claude Code (Opus 5).

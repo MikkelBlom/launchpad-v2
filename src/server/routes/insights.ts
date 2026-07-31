@@ -3,6 +3,8 @@ import { getActivity, getStats, search } from '../services/insights.ts'
 import { projectDiff, recentCommits } from '../services/gitHistory.ts'
 import { findDuplicates, mergeProjects } from '../services/duplicates.ts'
 import { getProject } from '../repo/projects.ts'
+import { recordChange } from '../repo/changes.ts'
+import { provenanceFrom } from '../services/provenance.ts'
 
 export async function insightRoutes(app: FastifyInstance): Promise<void> {
   app.get('/stats', async () => getStats())
@@ -39,9 +41,23 @@ export async function insightRoutes(app: FastifyInstance): Promise<void> {
     if (!body?.keeperId || !Array.isArray(mergeIds)) {
       return reply.code(400).send({ error: 'keeperId and mergeIds are required' })
     }
-    if (!getProject(body.keeperId)) {
+    const keeper = getProject(body.keeperId)
+    if (!keeper) {
       return reply.code(404).send({ error: 'Keeper project not found' })
     }
-    return mergeProjects(body.keeperId, mergeIds)
+    const result = mergeProjects(body.keeperId, mergeIds)
+    // A merge deletes registrations. Log which ones, or the change history has a silent hole
+    // exactly where someone will later be looking for a project that has stopped existing.
+    for (const gone of result.removed) {
+      recordChange({
+        provenance: provenanceFrom(req),
+        projectId: keeper.id,
+        entityType: 'project',
+        entityId: gone.id,
+        action: 'deleted',
+        summary: `merged "${gone.name}" (#${gone.id}, ${gone.path}) into "${keeper.name}" (#${keeper.id})`
+      })
+    }
+    return result
   })
 }

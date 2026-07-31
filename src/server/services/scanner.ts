@@ -275,6 +275,16 @@ function describe(result: Omit<DiscoveryResult, 'message'>): string {
     const verb = missing.length === 1 ? 'does' : 'do'
     parts.push(`${plural(missing.length, 'root')} ${verb} not exist: ${missing.map((r) => r.path).join(', ')}`)
   }
+  // Named, not just counted: the folder someone is looking for is the whole reason they
+  // pressed Scan, and "1 folder was skipped" would send them hunting for which.
+  if (result.skipped.length > 0) {
+    const names = result.skipped.map((s) => basename(s.path))
+    parts.push(
+      names.length <= 4
+        ? `Skipped ${names.join(', ')} — not a project folder.`
+        : `Skipped ${result.skipped.length} folders that don't look like projects.`
+    )
+  }
   return parts.join(' ')
 }
 
@@ -305,8 +315,19 @@ export async function discoverProjects(): Promise<DiscoveryResult> {
   const seen = new Set<string>()
   const added: string[] = []
   const rootReports: RootReport[] = []
+  const skipped: Array<{ path: string; reason: string }> = []
   let scanned = 0
   let skippedExisting = 0
+
+  // Only folders sitting directly under a root are worth reporting: those are the ones
+  // someone creates and then expects to see. Everything deeper is the inside of a project.
+  const MAX_SKIPPED = 25
+
+  function whyNotAProject(dir: string): string {
+    const entries = lowerEntrySet(dir)
+    if (entries.size === 0) return 'the folder is empty'
+    return 'no .git, no manifest (package.json, .sln, pyproject.toml, …), no README, too few source files — and nothing inside it looks like a project either'
+  }
 
   function record(normalized: string, report: RootReport): void {
     const key = pathKey(normalized)
@@ -343,7 +364,14 @@ export async function discoverProjects(): Promise<DiscoveryResult> {
         // Do not descend into a recognised project.
         continue
       }
+      // Walk first, then judge: a folder that is not itself a project but holds several
+      // (`Unity Projects`, `Coding Pirates`) is a container, not something that was ignored.
+      // Only a top-level folder that yielded nothing at all is worth reporting.
+      const before = report.candidates
       walk(full, depth + 1, report)
+      if (depth === 1 && report.candidates === before && skipped.length < MAX_SKIPPED) {
+        skipped.push({ path: normalized, reason: whyNotAProject(full) })
+      }
     }
   }
 
@@ -365,6 +393,6 @@ export async function discoverProjects(): Promise<DiscoveryResult> {
     seedDefaultLaunchProfiles(project.id)
   }
 
-  const summary = { added, scanned, roots: rootReports, skippedExisting }
+  const summary = { added, scanned, roots: rootReports, skippedExisting, skipped }
   return { ...summary, message: describe(summary) }
 }

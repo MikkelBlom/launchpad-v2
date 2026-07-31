@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
   createProject,
   deleteProject,
@@ -32,6 +32,27 @@ function failRelocate(reply: FastifyReply, error: unknown): FastifyReply {
   return reply.code(500).send({ error: String(error instanceof Error ? error.message : error) })
 }
 
+// Deleting a project is the one destructive act the UI still allows, and until now it left no
+// trace at all: a registration would simply be absent, with nothing in `changes` to say when it
+// went or who did it. That turns "where did my project go?" into an unanswerable question — the
+// exact question the change log exists for. Recorded before the delete, while the name is still
+// readable; the row survives because `changes.project_id` has no foreign key.
+function noteDeletion(req: FastifyRequest, id: number): void {
+  const project = getProject(id)
+  if (!project) return
+  const counts = project.counts
+  recordChange({
+    provenance: provenanceFrom(req),
+    projectId: null,
+    entityType: 'project',
+    entityId: id,
+    action: 'deleted',
+    summary:
+      `deleted "${project.name}" (#${id}) at ${project.path} — ` +
+      `${counts.notes} notes, ${counts.ideas} ideas, ${counts.openTasks} open tasks went with it`
+  })
+}
+
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/projects', async () => listProjects())
 
@@ -48,7 +69,10 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/projects/bulk-delete', async (req) => {
     const ids = (req.body as { ids?: number[] }).ids ?? []
-    for (const id of ids) deleteProject(id)
+    for (const id of ids) {
+      noteDeletion(req, id)
+      deleteProject(id)
+    }
     return { ok: true, count: ids.length }
   })
 
@@ -109,7 +133,9 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.delete('/projects/:id', async (req) => {
-    deleteProject(Number((req.params as { id: string }).id))
+    const id = Number((req.params as { id: string }).id)
+    noteDeletion(req, id)
+    deleteProject(id)
     return { ok: true }
   })
 

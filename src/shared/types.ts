@@ -279,6 +279,10 @@ export interface DiscoveryResult {
   scanned: number
   roots: Array<{ path: string; exists: boolean; candidates: number; added: number }>
   skippedExisting: number
+  // Folders sitting directly under a root that discovery did not recognise, and why. A scan
+  // that reports only what it took leaves "so where is my folder?" unanswerable — which is
+  // exactly the question someone asks after creating one and scanning.
+  skipped: Array<{ path: string; reason: string }>
   message: string
 }
 

@@ -387,6 +387,24 @@ function ScanReport({ result }: { result: DiscoveryResult }) {
         </div>
       )}
       <ImportLine label="Added" items={added} tone="text-brand-strong" />
+      {/* The folder someone came here looking for is usually one of these. Naming it, with
+          the reason, is the difference between "the scan is broken" and "ah, it's empty". */}
+      {Array.isArray(result.skipped) && result.skipped.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="font-medium text-ink-soft">
+            Skipped — not a project ({result.skipped.length}):
+          </p>
+          {result.skipped.map((s) => (
+            <p key={s.path} className="text-xs text-ink-faint">
+              <span className="font-mono">{s.path.split(/[\\/]/).pop()}</span> — {s.reason}
+            </p>
+          ))}
+          <p className="text-xs text-ink-faint">
+            To track one anyway, register it directly:{' '}
+            <span className="font-mono">launchpad register &quot;&lt;path&gt;&quot;</span>
+          </p>
+        </div>
+      )}
     </div>
   )
 }

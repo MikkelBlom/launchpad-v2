@@ -180,10 +180,14 @@ function pickKeeper(cluster: Entry[]): Entry {
 export interface MergeResult {
   merged: number
   keeperId: number
+  // The registrations this merge deleted, so the caller can record them. "3 merged" cannot be
+  // turned back into "which three" after the rows are gone.
+  removed: Array<{ id: number; name: string; path: string }>
 }
 
 interface MergeRow {
   id: number
+  name: string
   path: string
   description: string
   color: string | null
@@ -204,18 +208,18 @@ export function mergeProjects(keeperId: number, mergeIds: number[]): MergeResult
   const placeholders = ids.map(() => '?').join(', ')
   const rows = db
     .prepare(
-      `SELECT id, path, description, color, is_favorite, live_url, vercel_project_id
+      `SELECT id, name, path, description, color, is_favorite, live_url, vercel_project_id
        FROM projects WHERE id IN (${placeholders})`
     )
     .all(...(ids as never[])) as unknown as MergeRow[]
 
   const requested = rows.find((r) => r.id === keeperId)
-  if (!requested) return { merged: 0, keeperId }
+  if (!requested) return { merged: 0, keeperId, removed: [] }
 
   // Never keep a registration whose folder is gone while a sibling's folder is still there.
   const keeper = existsSync(requested.path) ? requested : (rows.find((r) => existsSync(r.path)) ?? requested)
   const losers = rows.filter((r) => r.id !== keeper.id)
-  if (losers.length === 0) return { merged: 0, keeperId: keeper.id }
+  if (losers.length === 0) return { merged: 0, keeperId: keeper.id, removed: [] }
 
   db.exec('BEGIN')
   try {
@@ -261,10 +265,14 @@ export function mergeProjects(keeperId: number, mergeIds: number[]): MergeResult
   }
 
   // Delete outside the manual transaction (deleteProject issues its own statement).
+  // Each removal is named in the returned report: a merge drops registrations, and "3 merged"
+  // is not enough to reconstruct which ones later, when someone asks where a project went.
   let merged = 0
+  const removed: Array<{ id: number; name: string; path: string }> = []
   for (const loser of losers) {
+    removed.push({ id: loser.id as number, name: loser.name as string, path: loser.path as string })
     deleteProject(loser.id)
     merged++
   }
-  return { merged, keeperId: keeper.id }
+  return { merged, keeperId: keeper.id, removed }
 }

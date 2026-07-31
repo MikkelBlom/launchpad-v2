@@ -9,7 +9,8 @@ export function normalizePath(p: string): string {
   return resolve(p)
 }
 
-// Default localhost port. 3000/3001/5000 are taken on this machine, so we use 7420.
+// Default localhost port. 7420 sits above every common dev-server default, so Launchpad and
+// the projects it tracks don't compete for the same numbers.
 export const DEFAULT_PORT = 7420
 
 export function getDataDir(): string {

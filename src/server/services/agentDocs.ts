@@ -39,7 +39,7 @@ Write back with \`launchpad task add "…"\`, \`launchpad idea add "…"\`, \`la
           .map((claim) => `**http://localhost:${claim.port}**${claim.label ? ` (${claim.label})` : ''}`)
           .join(' and ')}. Use ${project.ports.length > 1 ? 'those ports' : 'that port'} when you start or configure its dev server${project.ports.length > 1 ? 's' : ''} — don't invent a new one. A process this project runs that isn't listed above needs its own claim: \`launchpad ports add <n> --label "<what it is>"\`.`
       : `This project has no port claimed yet. Before configuring a dev server, run \`launchpad ports free\` to get ports that are actually available, pick one, and claim it with \`launchpad ports add <n>\` so it shows up in Launchpad and nothing else takes it. One claim per process the project runs.`
-  } A port another project already claims is refused — ask for another rather than forcing it. Never assume 3000, 3001 or 5000 are free: they are permanently taken on this machine.
+  } A port another project already claims is refused, naming the project that holds it — ask for a free one rather than forcing it. Never assume a port is free because nothing is listening on it: \`launchpad ports free\` is the only list that accounts for what other projects have claimed.
 
 \`ai-instructions/LAUNCHPAD.md\` is a **read-only mirror** — editing it changes nothing.
 Agents archive rather than delete; nothing you do here is unrecoverable.
@@ -69,8 +69,8 @@ duplicating. Archive instead of deleting.
 
 If this project runs a dev server, also claim its port: \`launchpad ports free\` to see what is
 actually available, then \`launchpad ports add <n> --project ${project.id}\` — once per process it
-runs, with \`--label\` to say which is which. 3000/3001/5000 are already taken on this machine, and
-a port another project holds is refused.`
+runs, with \`--label\` to say which is which. A port another project already holds is refused, and
+the refusal names the project holding it.`
 }
 
 export interface WriteInstructionsResult {

@@ -1,5 +1,46 @@
 # Sessions — Launchpad v2
 
+## 2026-07-31 (latest) — A shadow database, and ports that were never machine facts
+
+**Agent:** Claude Code (Opus 5).
+
+Three reports: new projects wouldn't appear ("Failed to fetch"), several projects had lost all
+their notes/ideas/tasks, and the 3000/3001/5000 block was wrong — those are PMS's ports.
+
+**"Failed to fetch" was my fault.** A service I started in the previous step with PowerShell's
+`Start-Process` died with the tool session that spawned it. Restarted detached via
+`Win32_Process.Create`, which survives. The scan had in fact worked: LittleBigMouse (#24) was
+registered all along; the UI simply had no backend to read it from.
+
+**The missing data was never deleted — it was written to a shadow copy of the database.** The
+agent shell runs in a sandbox with a copy-on-write filesystem overlay, so a session on 30-07 that
+ran `launchpad push` through it wrote 254 items into an overlay of
+`%APPDATA%\launchpad-v2\launchpad.sqlite` that the real app cannot see. Same path, two files:
+364 KB / 22 projects through the sandbox, 212 KB / 20 projects for real. Every push reported
+success. See the warning at the top of WORKING_NOTES.md — this is a trap for any future session.
+
+Recovered by reading the overlay and merging it back through `POST /api/projects/:id/push`
+(merge-only, idempotent, backs up first), matching projects **by path** because ids differ across
+the two generations — the overlay's Launchpad is #2 at `…\Project Manager\launchpad-v2`, the live
+one #6 at `…\Project Manager`. Restored 188 items into the six projects that were empty:
+Finance Tracker 45, CPO Management 47, PMS 30, Darkroom 25, Wireframe Studios Website 23
+(the overlay knows it as "Portfolio Website"), Launchpad 18. Ada and Korean were deliberately
+**skipped** — their live data is equal or newer, and pushing the overlay would have overwritten
+this morning's work with older copies. Mikkel chose that scope.
+
+**Ports: 3000/3001/5000 left `RESERVED_PORTS`.** They were never machine facts; they are the ports
+one registered project runs on. Encoding them as reserved was wrong twice: every other project got
+the wrong reason for the refusal ("permanently in use on this machine"), and PMS itself could not
+claim the ports it actually uses. The set is now just 7420/7421 — Launchpad's own service and dev
+server. Ownership is expressed by claiming, and the conflict rule refuses everyone else *by name*:
+"Port 3000 is already claimed by "Program Management System (PMS)", "CPO Management"". Every
+hardcoded mention of 3000/3001/5000 in the CLI guide, agent docs and UI hints went with it.
+
+**Still open (Mikkel's call, needs data + config decisions):** 3000 is claimed by both PMS and CPO
+Management, and 3001 by Wireframe Studios Website rather than PMS. If those three ports are all
+PMS's, the other two projects need moving and their `.claude/launch.json` files updating, or the
+next `ports detect` will put them back.
+
 ## 2026-07-31 (later) — White window after a rebuild: the shell was adopting a stale server
 
 **Agent:** Claude Code (Opus 5).

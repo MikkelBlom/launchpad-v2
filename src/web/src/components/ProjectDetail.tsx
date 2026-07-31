@@ -496,7 +496,7 @@ function DevPortModal({
       <p className="mt-4 text-xs text-ink-faint">
         Claiming only records the port here — it doesn&apos;t change the project&apos;s config. Set the
         same ports in the project&apos;s dev servers so the two agree. A port another project already
-        holds is refused; 3000, 3001 and 5000 are permanently taken on this machine.
+        holds is refused, naming the project that holds it.
       </p>
     </Modal>
   )

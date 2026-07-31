@@ -28,7 +28,8 @@ A single background service (Node + TypeScript + Fastify) that:
   `node:sqlite`. Electron only hosts a window pointed at localhost + spawns the server as a
   child under the system Node. Never move SQLite into the Electron process.
 - **Windows-first.** Use `path` helpers; normalize project paths with `normalizePath` so the
-  CLI's cwd matching works. Avoid ports 3000/3001/5000.
+  CLI's cwd matching works. 3000/3001/5000 are PMS's ports — claimed by that project, not
+  reserved in code.
 - **Two channels, one live database.** The dev window (`--dev`, Vite on :7421) and the stable
   app (`dist/` on :7420) both write `%APPDATA%\launchpad-v2\launchpad.sqlite`. That is
   deliberate, and it means **dev is not a sandbox**: before touching a migration or anything

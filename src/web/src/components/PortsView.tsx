@@ -177,9 +177,9 @@ export function PortsView({ onOpenProject }: { onOpenProject: (id: number) => vo
       {reserved.length > 0 && (
         <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <span className="font-mono">{[...new Set(reserved.map((c) => c.port))].join(', ')}</span>{' '}
-          {reserved.length === 1 ? 'is' : 'are'} permanently taken on this machine (or belong to
-          Launchpad). Claims on {reserved.length === 1 ? 'it' : 'them'} predate the check that now
-          refuses them — move {reserved.length === 1 ? 'it' : 'those projects'} to a free port.
+          {reserved.length === 1 ? 'is' : 'are'} Launchpad&apos;s own service and dev server. A
+          project claiming {reserved.length === 1 ? 'it' : 'them'} will collide with Launchpad
+          itself — move {reserved.length === 1 ? 'it' : 'those projects'} to a free port.
         </p>
       )}
 

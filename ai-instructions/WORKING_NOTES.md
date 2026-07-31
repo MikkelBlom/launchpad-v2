@@ -64,7 +64,8 @@ through `normalizePath` (path.resolve → canonical). The CLI sends `process.cwd
 `/api/projects/resolve`, also normalized, so cwd matching is reliable.
 
 ## Port choice
-Default 7420 (configurable via `LAUNCHPAD_PORT`). 3000/3001/5000 are used by other things on
+Default 7420 (configurable via `LAUNCHPAD_PORT`). 3000/3001/5000 belong to PMS, and are held as
+its ordinary claims rather than reserved in code — see the ports note below. They used to be used by other things on
 Mikkel's machine. Server binds 127.0.0.1 only (not exposed on the network) — revisit if/when
 the mobile face is added.
 
@@ -333,6 +334,18 @@ killing the `npm run stop` shell itself, or a neighbouring project's dev server.
   one port is a state the app must be able to display and the user must be able to fix; refusing
   *new* collisions is the service's job. A unique index on `port` would also have made migration
   v6 fail on the live database, which already had three projects on 3000.
+- **⚠ Agent sandboxes can shadow the database. Verify writes landed.** On 2026-07-31 a whole
+  session's work — 254 items pushed into six projects on 30-07 — turned out to have been written
+  to a copy-on-write *overlay* of `%APPDATA%\launchpad-v2\launchpad.sqlite`, not the real file.
+  The agent's shell saw a 364 KB database with 22 projects; the app saw a 212 KB one with 20, at
+  the same path. Everything the agent did looked successful and none of it reached Mikkel.
+  If your tooling has a sandboxed shell, **run `launchpad` commands (and the server) through the
+  unsandboxed one**, and confirm a write from the other side — `Invoke-WebRequest
+  http://localhost:7420/api/projects` — before reporting it done. Comparing file size or an MD5
+  of the database between the two shells exposes the split immediately.
+  Recovery, if it happens again: the overlay is a valid SQLite file, so read the items out of it
+  and merge them back through `POST /api/projects/:id/push`, which is merge-only, idempotent and
+  backs up first. Match projects by **path**, never by id — ids differ across generations.
 - **`apiVersion` is a contract, and the CLI enforces it.** `REQUIRES_API` in `cli/launchpad.mjs`
   must move in step with `apiVersion` in `routes/system.ts` whenever the CLI starts depending on
   a new server shape. Without the check, a service running an older build answers with fields

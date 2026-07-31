@@ -38,9 +38,17 @@ export class PortError extends Error {
 export const MIN_PORT = 1024
 export const MAX_PORT = 65535
 
-// Ports Launchpad must never hand out. 3000/3001/5000 are permanently occupied on this
-// machine; 7420 is the Launchpad service and 7421 its Vite dev server.
-export const RESERVED_PORTS = new Set([3000, 3001, 5000, 7420, 7421])
+// Ports Launchpad must never hand out: its own service and its own dev server. Nothing else
+// belongs here.
+//
+// 3000/3001/5000 used to sit in this set as "permanently taken on this machine". They are
+// not machine facts — they are the ports one registered project (PMS) runs on, and encoding
+// that here was wrong twice over: it told every other project the wrong reason for the
+// refusal, and it stopped PMS itself from claiming the ports it actually uses. A port that
+// belongs to a project is expressed by that project claiming it; the conflict rule then
+// refuses everyone else, with a message naming the owner. Reserve a port here only when
+// Launchpad itself needs it.
+export const RESERVED_PORTS = new Set([7420, 7421])
 
 // Suggestions come from the band just above Launchpad's own ports: high enough to clear
 // every common dev-server default (5173, 8080, 8000, 5432, 4200 …) and low enough to stay
@@ -362,10 +370,7 @@ export async function checkPort(port: number, forProjectId?: number): Promise<Po
       listening,
       claimedBy,
       reserved,
-      reason:
-        valid === 7420 || valid === 7421
-          ? `Port ${valid} belongs to Launchpad itself — pick another.`
-          : `Port ${valid} is permanently in use on this machine — pick another.`
+      reason: `Port ${valid} belongs to Launchpad itself — pick another.`
     }
   }
 
@@ -470,9 +475,7 @@ export interface ClaimOptions {
 function assertClaimable(project: Project, port: number, force: boolean): void {
   if (RESERVED_PORTS.has(port)) {
     throw new PortError(
-      port === 7420 || port === 7421
-        ? `Port ${port} belongs to Launchpad itself — pick another (launchpad ports free).`
-        : `Port ${port} is permanently in use on this machine — pick another (launchpad ports free).`
+      `Port ${port} belongs to Launchpad itself — pick another (launchpad ports free).`
     )
   }
   const others = projectsClaiming(port, project.id)

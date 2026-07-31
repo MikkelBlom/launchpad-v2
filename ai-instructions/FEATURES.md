@@ -116,7 +116,7 @@ Plain status tracker (readable markdown — this is not machine-parsed).
 - **Many ports per project, and claims that are actually enforced** (2026-07-30) — migration v6
   adds `project_ports` (one row per claimed port, with a label and a source), so a project that
   runs a web server and an API claims both. `Project.devPort` is now derived from the first claim.
-  Claiming goes through one gate: a **reserved** port (3000/3001/5000, 7420/7421) is refused
+  Claiming goes through one gate: a **reserved** port (7420/7421 — Launchpad's own) is refused
   outright, a port another project holds is refused with a 409 naming that project unless
   `--force`. Detection claims every port the winning config file declares and reports the ones it
   refused instead of storing them silently. `PATCH /api/projects/:id` no longer accepts `devPort`

@@ -453,10 +453,11 @@ PORTS — which localhost each project runs on
     launchpad ports add 7431           2. claim it in Launchpad before you use it
                                        3. configure the project's dev server (vite.config,
                                           .claude/launch.json, the npm script) to that port
-  A claim is REFUSED if another project already holds the port (409 — pick another, or pass
-  --force if they genuinely never run together) or if the port is reserved. 3000, 3001 and
-  5000 are permanently taken on this machine, and 7420/7421 are Launchpad's own: those are
-  refused outright, --force or not.
+  A claim is REFUSED if another project already holds the port — 409, naming that project;
+  pick another, or pass --force if the two genuinely never run at the same time. 7420/7421 are
+  Launchpad's own service and dev server: those are refused outright, --force or not.
+  Ports another project runs on (PMS holds 3000/3001/5000, for instance) are refused by the
+  same conflict rule as everything else, so "ports free" and "ports check" always know.
 
 TASKS
   launchpad task add "<title>" [--body "…"] [--priority high|medium|low]
@@ -813,7 +814,7 @@ function printPortOverview(overview) {
       const label = c.label ? `  [${c.label}]` : ''
       const source = c.source ? `  (${c.source})` : ''
       const flags = [
-        c.reserved ? '! reserved — permanently taken on this machine' : '',
+        c.reserved ? "! reserved — Launchpad's own port" : '',
         (c.conflictsWith ?? []).length > 0 ? `! also claimed by ${c.conflictsWith.join(', ')}` : ''
       ].filter(Boolean)
       out(

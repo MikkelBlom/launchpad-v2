@@ -183,7 +183,7 @@ export interface PortClaimRow extends PortClaim {
   url: string
   // Whether something is actually listening on that port right now.
   listening: boolean
-  // A port Launchpad must never hand out (permanently taken on this machine, or its own).
+  // A port Launchpad must never hand out — its own service or dev server.
   reserved: boolean
   // Other projects laying claim to the same port — a collision worth surfacing.
   conflictsWith: string[]

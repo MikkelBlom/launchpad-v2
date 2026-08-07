@@ -97,6 +97,34 @@ one command, HMR live), or `npm run build && npm run desktop` for the stable des
 `npm run stop` clears orphaned server/Vite processes; `npm run shortcuts` (re)creates the two
 Start Menu entries.
 
+## How To Report Back (applies to EVERY session)
+
+The final message is a **handoff, not a work log.** Mikkel routinely runs many sessions in
+parallel; when each one ends in a wall of text, the things that actually need his attention —
+the deferred item, the blocked decision, the half-finished feature — get buried and lost. A
+report that is complete but unreadable has failed.
+
+**Report only what he needs in order to decide what happens next:**
+1. **Decisions he has to make** — anything you could not resolve yourself. State the choice and
+   your recommendation in a line or two each. If there are none, say so.
+2. **Things he needs to know** — behaviour that changed under him, live risks, anything now
+   true that wasn't before. Quantify where you can ("52 of 52 rows", not "may affect some").
+3. **Not done / deferred / next** — everything you skipped, could not verify, or consciously
+   left. This section is the one that gets dropped and must never be. Say *why* it was left.
+
+**Leave out** the process: mistakes made and then fixed, blow-by-blow narration, test counts and
+green checkmarks (everything is expected to pass before you present it — if something does not
+pass, that is a *finding* and belongs in section 2), file-by-file diffs, and restatements of what
+he already asked for. Approaches may be mentioned in a short sentence when they explain a result.
+
+**Everything you leave out still gets written down** — into `ai-instructions/WORKING_NOTES.md`
+and `SESSIONS.md`, where the next agent will look for it. How something was implemented, what was
+tried, why a decision went the way it did: record it, don't narrate it. The rule is *write
+everything down, report only what is actionable.*
+
+Structure it with headers and short lists so it can be skimmed in under a minute. Be specific
+rather than exhaustive — he will ask for detail on anything he wants expanded.
+
 <!-- launchpad:begin -->
 ## Launchpad
 

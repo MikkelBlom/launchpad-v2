@@ -1,5 +1,22 @@
 # Sessions — Launchpad v2
 
+## 2026-08-07 — Reporting rule added to the project guide
+
+**Agent:** Claude Code (Opus 5).
+
+Mikkel's "How To Report Back" rule (already in his global `~/.claude/CLAUDE.md`) now also lives in
+this project's `ai-instructions/CLAUDE.md`, so it survives in the repo rather than only in his
+machine-local config. The final message of a session is a handoff, not a work log: decisions he
+must make, things that changed under him, and what was left undone — everything else (how it was
+built, what was tried, why a call went the way it did) belongs here and in WORKING_NOTES.md.
+
+Two deliberate deviations from the text as written: the `1b.` section number was dropped, because
+this file has no numbered sections (it is the project-specific CLAUDE.md, not a copy of the global
+guide), and the section sits **above** the `<!-- launchpad:begin -->` markers so the one-way
+exporter that owns that block cannot overwrite it. The same rule was added verbatim, numbered
+`1b.`, to `../ai-instructions-starter/CLAUDE.md` between sections 1 and 2, so new projects
+scaffolded from the starter inherit it.
+
 ## 2026-07-31 (end of day) — The app starts its own service, and empty folders get an offer
 
 **Agent:** Claude Code (Opus 5).

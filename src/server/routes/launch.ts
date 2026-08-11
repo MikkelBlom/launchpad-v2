@@ -64,10 +64,16 @@ export async function launchRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true }
   })
 
+  // `admin` overrides the saved terminal preference for this one launch; omit it to use it.
   app.post('/projects/:id/open-terminal', async (req, reply) => {
     const project = getProject(Number((req.params as { id: string }).id))
     if (!project) return reply.code(404).send({ error: 'Project not found' })
-    openTerminal(project.path)
+    const { admin } = (req.body ?? {}) as { admin?: boolean }
+    try {
+      openTerminal(project.path, typeof admin === 'boolean' ? admin : undefined)
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) })
+    }
     return { ok: true }
   })
 

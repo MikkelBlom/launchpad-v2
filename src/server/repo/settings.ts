@@ -12,7 +12,9 @@ const DEFAULTS: AppSettings = {
   groupByStatus: false,
   vercelToken: '',
   vercelTeamId: '',
-  startAtLogin: true
+  startAtLogin: true,
+  terminalShell: 'auto',
+  terminalAsAdmin: true
 }
 
 function readRaw(key: string): string | undefined {

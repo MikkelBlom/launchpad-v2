@@ -11,6 +11,10 @@ export type IdeaStatus = 'open' | 'promoted' | 'archived'
 export type CaptureKind = 'idea' | 'task' | 'note' | 'link'
 export type LaunchKind = 'vscode' | 'shell' | 'url' | 'folder'
 
+// Which shell the terminal button opens. 'auto' is PowerShell 7 where it is installed and
+// Windows PowerShell where it isn't.
+export type TerminalShell = 'auto' | 'pwsh' | 'powershell' | 'cmd'
+
 // Which surface made a write. Agents identify themselves so their edits stay reviewable.
 export type WriteSource = 'ui' | 'cli' | 'agent' | 'import'
 
@@ -160,6 +164,11 @@ export interface AppSettings {
   // Whether the desktop app starts with Windows. The DB is the source of truth; the
   // Electron shell reads this on launch and applies it.
   startAtLogin: boolean
+  // What the per-project terminal button opens, and whether it asks for elevation (one UAC
+  // prompt per click). Only the terminal button reads these — shell launch profiles keep
+  // running in cmd, because they hold commands written for it.
+  terminalShell: TerminalShell
+  terminalAsAdmin: boolean
 }
 
 // ---- Dev server ports ----

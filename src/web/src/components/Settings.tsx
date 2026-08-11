@@ -189,6 +189,25 @@ export function Settings({ onChanged }: { onChanged: () => void }) {
           <span className="mb-1 block text-sm font-medium text-ink-soft">Editor command</span>
           <input className={inputCls} value={settings.defaultEditor} onChange={(e) => setSettings({ ...settings, defaultEditor: e.target.value })} onBlur={() => patch({ defaultEditor: settings.defaultEditor })} />
         </label>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="text-sm">
+            <span className="mb-1 block font-medium text-ink-soft">Terminal</span>
+            <select className="rounded-lg border border-line bg-surface-0 px-2 py-1.5 text-sm outline-none" value={settings.terminalShell} onChange={(e) => patch({ terminalShell: e.target.value as AppSettings['terminalShell'] })}>
+              <option value="auto">PowerShell (7 if installed)</option>
+              <option value="pwsh">PowerShell 7 (pwsh)</option>
+              <option value="powershell">Windows PowerShell 5.1</option>
+              <option value="cmd">Command Prompt</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 pb-2 text-sm text-ink-soft">
+            <input type="checkbox" checked={settings.terminalAsAdmin} onChange={(e) => patch({ terminalAsAdmin: e.target.checked })} /> Open as administrator
+          </label>
+        </div>
+        <p className="-mt-2 text-xs text-ink-faint">
+          Used by the terminal button on a project. Running as administrator means a UAC prompt on
+          every click, and anything you then run — installs, builds, git — runs elevated too.
+          Shell launch profiles are unaffected: they still run in cmd.
+        </p>
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-ink-soft">GitHub username</span>
           <input className={inputCls} value={settings.githubUser} onChange={(e) => setSettings({ ...settings, githubUser: e.target.value })} onBlur={() => patch({ githubUser: settings.githubUser })} />

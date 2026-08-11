@@ -1,5 +1,36 @@
 # Sessions — Launchpad v2
 
+## 2026-08-11 — The terminal button opens PowerShell, as admin
+
+**Agent:** Claude Code (Opus 5).
+
+Mikkel: the per-project Terminal button opens a cmd window; make it PowerShell, preferably
+elevated. `openTerminal` ran `start "Terminal" cmd` under a comment claiming it preferred Windows
+Terminal — it never did.
+
+Rather than hardcode a shell, it became two settings (`terminalShell`, `terminalAsAdmin` — both in
+`AppSettings`, both in the Preferences card) defaulting to `auto` + elevated. `auto` resolves to
+`pwsh.exe` when `where.exe` finds it and Windows PowerShell otherwise, cached for the life of the
+process. The launch itself goes through `Start-Process` inside a throwaway `powershell.exe`
+carrying a base64/UTF-16 script; WORKING_NOTES has the reasoning for every part of that, including
+why `-Command` cannot be used from Node and why no terminal host is named. The route takes an
+optional `{"admin": bool}` so a caller can override the setting for one launch — the UI does not
+use it yet, but it is what a Shift-click affordance would ride on.
+
+Two things found while in there: a project whose folder has gone missing produced a button that
+did nothing (now a 400 carrying the path — the old code's `spawn({cwd})` would have emitted an
+unhandled `error` event), and shell *launch profiles* were left on `cmd /k` deliberately.
+
+**Verification, honestly:** the generated script was proven end to end in the agent's own shell
+(correct working directory, quoting intact through a path containing an apostrophe), the settings
+round-trip through `PUT /api/settings` and render in the UI, and the server-side spawn returns a
+pid and exit code 0. What could **not** be verified from here is a window actually appearing: the
+agent sandbox blocks detached processes and kills anything ShellExecute starts. See the two ⚠
+notes in WORKING_NOTES — one on that limit, one on the adopted-server trap that took the live
+service down mid-session (the running shell had adopted the server, so killing it left no
+supervisor; recovered by starting `npm run dev`, and the packaged app needs tray → Restart server
+to take 7420 back with the rebuilt `dist`).
+
 ## 2026-08-07 — Reporting rule added to the project guide
 
 **Agent:** Claude Code (Opus 5).

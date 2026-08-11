@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import {
   createLaunchProfile,
@@ -7,6 +8,7 @@ import {
 } from '../repo/launchProfiles.ts'
 import { getProject, touchOpened } from '../repo/projects.ts'
 import { getSettings } from '../repo/settings.ts'
+import type { TerminalShell } from '../../shared/types.ts'
 
 // All launches are fire-and-forget: detached, output ignored, parent unref'd so the
 // Launchpad service never blocks on or owns the spawned process.
@@ -23,10 +25,85 @@ export function openFolder(path: string): void {
   runShell(`start "" "${path}"`)
 }
 
-// Open a terminal already cd'd into the folder (Windows Terminal if present, else cmd).
-export function openTerminal(path: string): void {
-  const child = spawn(`start "Terminal" cmd`, { cwd: path, shell: true, detached: true, stdio: 'ignore' })
+// ---- Terminal ----
+//
+// The terminal button opens a shell already sitting in the project folder, elevated when
+// the setting says so. Nothing here names a *host*: Windows 11 routes every new console
+// into whatever "default terminal application" is set to (Windows Terminal, normally), so
+// launching the shell executable already gives you tabs if you have them configured.
+
+// A value as a PowerShell single-quoted string. Doubling is the only escape it needs.
+function psQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
+// Run a snippet in a throwaway powershell.exe. Start-Process is the only way to raise a UAC
+// prompt from Node, so the elevated and non-elevated paths share it rather than diverge.
+// The script goes in base64/UTF-16 (-EncodedCommand) because a -Command string would have
+// to survive Node's own command-line quoting on the way in, and PowerShell does not read
+// the backslash escapes Node emits.
+function runPowerShell(script: string): void {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64')
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true
+  })
   child.unref()
+}
+
+// PowerShell 7 is an install, not a given; Windows PowerShell always exists. Looked up once.
+let pwshInstalled: boolean | undefined
+
+function hasPwsh(): boolean {
+  if (pwshInstalled === undefined) {
+    pwshInstalled = spawnSync('where.exe', ['pwsh.exe'], { windowsHide: true }).status === 0
+  }
+  return pwshInstalled
+}
+
+function terminalExe(preference: TerminalShell): string {
+  switch (preference) {
+    case 'pwsh':
+      return 'pwsh.exe'
+    case 'powershell':
+      return 'powershell.exe'
+    case 'cmd':
+      return 'cmd.exe'
+    default:
+      return hasPwsh() ? 'pwsh.exe' : 'powershell.exe'
+  }
+}
+
+// Keep the window open, and land it in the project folder. -WorkingDirectory below already
+// asks for the folder, but an elevated process does not reliably inherit it, so the shell
+// is told where to go as well.
+function terminalArgs(exe: string, path: string): string {
+  if (exe === 'cmd.exe') return `/k cd /d "${path}"`
+  return `-NoLogo -NoExit -Command "Set-Location -LiteralPath ${psQuote(path)}"`
+}
+
+// Open a terminal already cd'd into the folder. `asAdmin` overrides the saved preference
+// for one launch; leave it undefined to use the setting.
+export function openTerminal(path: string, asAdmin?: boolean): void {
+  // A moved or deleted folder would otherwise fail inside the detached wrapper, where
+  // nothing can report it — the button would just do nothing, twice as confusing for a
+  // project whose folder is exactly what went missing.
+  if (!existsSync(path)) {
+    throw new Error(`That folder is not there any more: ${path}`)
+  }
+  const settings = getSettings()
+  const exe = terminalExe(settings.terminalShell)
+  const elevated = asAdmin ?? settings.terminalAsAdmin
+  const script = [
+    `Start-Process -FilePath ${psQuote(exe)}`,
+    `-WorkingDirectory ${psQuote(path)}`,
+    `-ArgumentList ${psQuote(terminalArgs(exe, path))}`,
+    elevated ? '-Verb RunAs' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+  runPowerShell(script)
 }
 
 export function openInEditor(path: string): void {

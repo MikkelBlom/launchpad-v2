@@ -121,6 +121,14 @@ Plain status tracker (readable markdown — this is not machine-parsed).
   `--force`. Detection claims every port the winning config file declares and reports the ones it
   refused instead of storing them silently. `PATCH /api/projects/:id` no longer accepts `devPort`
   at all. CLI: `ports add|rm|label|primary`, and `ports free` now prints what it skipped.
+- **The terminal button opens PowerShell, elevated by default** (2026-08-11) — it used to open
+  `cmd` (the comment claiming it preferred Windows Terminal was never true). Two settings under
+  Preferences now drive it: **Terminal** (`auto` → pwsh 7 if installed, else Windows PowerShell;
+  or pick `pwsh` / `powershell` / `cmd` explicitly) and **Open as administrator** (default on,
+  one UAC prompt per click). `POST /api/projects/:id/open-terminal` takes an optional
+  `{"admin": bool}` that overrides the setting for one launch. A project whose folder has gone
+  missing now gets a 400 with the path instead of a button that silently does nothing.
+  Shell *launch profiles* deliberately still run in `cmd` — see WORKING_NOTES.
 
 ## Planned / not yet
 

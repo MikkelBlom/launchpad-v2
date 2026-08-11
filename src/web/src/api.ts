@@ -298,8 +298,12 @@ export const api = {
     }),
 
   // Project actions
-  openTerminal: (id: number) =>
-    req<{ ok: true }>(`/projects/${id}/open-terminal`, { method: 'POST' }),
+  // `admin` overrides the terminal preference in settings for this one launch.
+  openTerminal: (id: number, admin?: boolean) =>
+    req<{ ok: true }>(`/projects/${id}/open-terminal`, {
+      method: 'POST',
+      ...(typeof admin === 'boolean' ? body({ admin }) : {})
+    }),
   exportFile: (id: number) =>
     req<{ path: string }>(`/projects/${id}/export-file`, { method: 'POST' }),
   bulkUpdate: (ids: number[], patch: { status?: ProjectStatus; isFavorite?: boolean }) =>

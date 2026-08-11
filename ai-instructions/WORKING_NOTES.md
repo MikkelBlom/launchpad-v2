@@ -302,6 +302,68 @@ killing the `npm run stop` shell itself, or a neighbouring project's dev server.
 `npm run stop -- --dry-run` to see the matches first. Note it must run under Windows PowerShell
 5.1, where `ConvertTo-Json` has no `-AsArray` — a single match comes back as a bare object.
 
+## How the terminal button launches a shell (and why it goes through PowerShell)
+
+`openTerminal` in `services/launcher.ts` no longer does `start "Terminal" cmd`. It builds a
+one-line PowerShell script and runs it in a throwaway `powershell.exe` that exits immediately:
+
+```
+Start-Process -FilePath 'pwsh.exe' -WorkingDirectory '<path>' \
+  -ArgumentList '-NoLogo -NoExit -Command "Set-Location -LiteralPath ''<path>''"' [-Verb RunAs]
+```
+
+Four things about that are deliberate:
+
+- **`Start-Process` is the vehicle** because `-Verb RunAs` is the only way to raise a UAC prompt
+  from Node. The elevated and non-elevated paths differ by that flag alone, so there is one code
+  path to keep working, not two.
+- **The script is passed as base64/UTF-16 (`-EncodedCommand`)**, not as `-Command`. Node's
+  Windows argument escaping turns inner `"` into `\"`, and PowerShell does not read `\` as an
+  escape — a `-Command` string with any quoting in it arrives corrupted. Encoding sidesteps the
+  whole class of problem. The cost is that the command is unreadable in Process Explorer; decode
+  it with `[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($s))`.
+- **The shell is told to `Set-Location` even though `-WorkingDirectory` is already set**, because
+  an elevated process does not reliably inherit the working directory.
+- **No terminal *host* is named.** Windows 11 routes a new console into whatever "default
+  terminal application" is set to, so launching `pwsh.exe` lands in Windows Terminal for anyone
+  who has it. Naming `wt.exe` would have bought tabs and cost reliability: `wt` is a WindowsApps
+  execution alias and elevating an alias is a known-flaky path.
+
+Quoting is nested two levels deep (outer PowerShell string → inner `-Command` string), so a path
+containing an apostrophe is doubled twice. `psQuote` handles it; there is a real folder on this
+machine with an apostrophe, and it was the test case.
+
+**Shell launch profiles were left on `cmd /k` on purpose.** They hold commands someone wrote for
+cmd (`set X=1 && npm run dev` is valid there and not in PowerShell 5.1), and a dev server has no
+business running elevated. If that ever changes, it needs a per-profile shell field, not a global
+switch.
+
+**Admin by default is a trade Mikkel asked for** (2026-08-11): a UAC prompt per click, and
+everything typed afterwards runs elevated — installs, builds, git. The real cost is not danger so
+much as elevation not inheriting: an elevated shell cannot see mapped network drives, and
+drag-and-drop from Explorer into it is blocked. The Preferences checkbox turns it off, and
+`POST /api/projects/:id/open-terminal {"admin": false}` overrides it per launch.
+
+## ⚠ You cannot verify a window launch from inside an agent sandbox
+
+Claude Code's tool sandbox blocks the creation of detached processes outright (the wrapper never
+runs at all) and kills anything `ShellExecute` starts, even when the spawning server reports
+`pid` and exit code 0. Everything looks successful and no window appears. A dev server started
+through the preview runner is inside the same sandbox, so it fails the same way. The wrapper
+script itself can still be verified — run it in the agent's own shell and have it report
+`(Get-Location).Path` to a file — but "a terminal window actually opened" can only be confirmed
+by a human clicking the button in the installed app.
+
+## ⚠ The shell does not always own the server it is talking to
+
+`serverChild` is only set when *that* shell spawned the server; a shell that **adopted** a server
+already listening on 7420 leaves it null, and the `exit` handler then treats the death as "not
+ours" and does not restart it. Killing the server process of an adopted service therefore takes
+Launchpad down with no supervisor to bring it back, and nothing recovers it automatically: the
+window only calls `ensureServer()` from `did-fail-load`, so an already-loaded window just sits
+there. Recover with tray → **Restart server** (which stops adopted servers too), or by reloading
+the window. Prefer that tray item over killing the process in the first place.
+
 ## Open questions / watch-outs
 - The installer is built, installed and verified (window, tray, server spawn, Run key,
   `--hidden` launch). **Untested by definition: an actual Windows login.** Reboot once and

@@ -206,7 +206,7 @@ Diagnosed 2026-07-28, fixed by the installer 2026-07-30. Everything here follows
 `app.setLoginItemSettings({path, args})` produced
 `C:\…\Projects\Project Manager\…\electron.exe C:\…\electron\main.cjs` with no quotes. This repo
 sits under **"Project Manager"**, so Windows split on that space: the executable was read as
-`C:\Users\mikke\Desktop\Projects\Project` and the entry script arrived as two mangled arguments.
+`C:\Users\you\Desktop\Projects\Project` and the entry script arrived as two mangled arguments.
 Autostart reported itself as enabled everywhere and did not work. A second entry
 (`electron.app.Electron`) had also been orphaned when `setAppUserModelId()` was added, because
 Electron keys the entry by AppUserModelID once one is set.
@@ -221,7 +221,7 @@ reverted; `main.cjs` carries a comment saying why.
 **The fix that shipped is packaging.** The installed exe lives at
 `%LOCALAPPDATA%\Programs\Launchpad\Launchpad.exe` — a path with **no spaces** — so the unquoted
 value is unambiguous and even a `--hidden` argument survives it. Verified 2026-07-30: the app
-writes `dk.mikkelblom.launchpad = C:\Users\mikke\AppData\Local\Programs\Launchpad\Launchpad.exe
+writes `dk.mikkelblom.launchpad = C:\Users\you\AppData\Local\Programs\Launchpad\Launchpad.exe
 --hidden`, and executing that exact string starts the app and its server. That is *why*
 `nsis.perMachine` is false — Program Files would put a space back in the path and break the
 argument. Don't "improve" it to a per-machine install.

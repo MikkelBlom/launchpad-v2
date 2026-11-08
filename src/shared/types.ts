@@ -465,3 +465,58 @@ export interface PushResult {
   warnings: string[]
   backupPath: string | null
 }
+
+// ---- Hygiene (read-only cleanup report) ----
+
+// What a hygiene finding is about. Every finding carries a *suggested* command as text; the
+// service never runs it.
+export type HygieneKind =
+  | 'uncommitted' // dirty working tree
+  | 'unpushed' // commits ahead of upstream, or on a branch with no upstream
+  | 'no-remote' // commits that exist nowhere but this disk
+  | 'worktree' // a stale or missing git worktree
+  | 'merged-branches' // local branches already merged into the default branch
+  | 'regenerable' // a large folder a tool can rebuild (node_modules, target/, .venv, ...)
+
+export interface HygieneFinding {
+  kind: HygieneKind
+  title: string
+  detail: string | null
+  // Copy-paste text, meant to be run from the project root. Never executed by Launchpad.
+  command: string | null
+  // Bytes a cleanup would free (regenerable folders only).
+  bytes: number | null
+  // False when sizing stopped at its budget: `bytes` is then a lower bound ("≥").
+  bytesExact: boolean
+  // Path relative to the project root, or absolute for a worktree outside it.
+  path: string | null
+  // Short supporting list: commit subjects, branch names, sample files.
+  items: string[]
+  // When the thing became a concern — oldest uncommitted edit, a worktree's last commit, ...
+  since: string | null
+}
+
+export interface ProjectHygiene {
+  projectId: number
+  name: string
+  path: string
+  scannedAt: string
+  durationMs: number
+  hasGit: boolean
+  // Set when (part of) the scan could not run — folder missing, a timeout. Findings may be partial.
+  error: string | null
+  findings: HygieneFinding[]
+  reclaimableBytes: number
+  // True when any folder size inside `reclaimableBytes` is a lower bound.
+  reclaimableIsLowerBound: boolean
+}
+
+export interface HygieneOverview {
+  // A background refresh is running; poll again for fresher results.
+  scanning: boolean
+  // Projects not scanned yet (they are absent from `projects`).
+  pending: number
+  lastFullScanAt: string | null
+  // Every scanned project, findings or not, sorted by how much there is to clean.
+  projects: ProjectHygiene[]
+}

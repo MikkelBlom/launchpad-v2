@@ -8,13 +8,14 @@ import { Settings } from './components/Settings'
 import { Inbox } from './components/Inbox'
 import { ActivityView } from './components/ActivityView'
 import { PortsView } from './components/PortsView'
+import { HygieneView } from './components/HygieneView'
 import { NewProjectModal } from './components/NewProjectModal'
 import { CaptureBar } from './components/CaptureBar'
 import { Sidebar } from './components/Sidebar'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { ErrorBoundary, REQUIRES_API, StaleService } from './components/Fallbacks'
 
-type View = 'dashboard' | 'inbox' | 'activity' | 'ports' | 'settings'
+type View = 'dashboard' | 'inbox' | 'activity' | 'ports' | 'hygiene' | 'settings'
 
 function Shell() {
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -163,6 +164,8 @@ function Shell() {
             <ActivityView onOpenProject={openProject} />
           ) : view === 'ports' ? (
             <PortsView onOpenProject={openProject} />
+          ) : view === 'hygiene' ? (
+            <HygieneView onOpenProject={openProject} />
           ) : (
             <Settings onChanged={refreshProjects} />
           )}

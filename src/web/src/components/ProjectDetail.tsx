@@ -19,6 +19,7 @@ import { renderMarkdown } from '../markdown'
 import { Badge, Button, EmptyState, IconButton, inputCls, Modal, useToast } from './ui'
 import { ItemTags } from './ItemTags'
 import { DiffView } from './DiffView'
+import { HygieneTab } from './HygieneView'
 import {
   IconArchive,
   IconArrowDown,
@@ -42,7 +43,7 @@ import {
   IconTrash
 } from './icons'
 
-type Tab = 'overview' | 'tasks' | 'ideas' | 'notes' | 'git' | 'readme'
+type Tab = 'overview' | 'tasks' | 'ideas' | 'notes' | 'git' | 'hygiene' | 'readme'
 
 // Local icons — icons.tsx is shared across views and these two are only used here.
 const iconBase = (p: SVGProps<SVGSVGElement>) => ({
@@ -282,7 +283,7 @@ export function ProjectDetail({
 
       {/* Tabs */}
       <div className="mt-4 flex gap-1 overflow-x-auto border-b border-line">
-        {(['overview', 'tasks', 'ideas', 'notes', 'git', 'readme'] as Tab[]).map((t) => (
+        {(['overview', 'tasks', 'ideas', 'notes', 'git', 'hygiene', 'readme'] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium capitalize transition-colors ${tab === t ? 'border-brand text-brand-strong' : 'border-transparent text-ink-soft hover:text-ink'}`}>{t}</button>
         ))}
       </div>
@@ -293,6 +294,7 @@ export function ProjectDetail({
         {tab === 'ideas' && <IdeasTab projectId={project.id} onChanged={onChanged} />}
         {tab === 'notes' && <NotesTab projectId={project.id} onChanged={onChanged} />}
         {tab === 'git' && <GitTab projectId={project.id} hasGit={project.git.hasGit} />}
+        {tab === 'hygiene' && <HygieneTab projectId={project.id} />}
         {tab === 'readme' && <ReadmeTab projectId={project.id} />}
       </div>
 

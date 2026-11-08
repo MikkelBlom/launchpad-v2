@@ -30,6 +30,7 @@ import type {
   SearchHit,
   Tag,
   Task,
+  Timeline,
   VercelProject
 } from '../../shared/types'
 
@@ -285,6 +286,12 @@ export const api = {
   // Insights
   stats: () => req<DashboardStats>('/stats'),
   activity: (limit = 40) => req<ActivityItem[]>(`/activity?limit=${limit}`),
+  timeline: (week: string, opts: { mine?: boolean; refresh?: boolean } = {}) => {
+    const query = new URLSearchParams({ week })
+    if (opts.mine) query.set('mine', 'true')
+    if (opts.refresh) query.set('refresh', 'true')
+    return req<Timeline>(`/timeline?${query.toString()}`)
+  },
   search: (q: string) => req<SearchHit[]>(`/search?q=${encodeURIComponent(q)}`),
   commits: (projectId: number) => req<GitCommit[]>(`/projects/${projectId}/commits`),
   readme: (projectId: number) => req<{ content: string }>(`/projects/${projectId}/readme`),

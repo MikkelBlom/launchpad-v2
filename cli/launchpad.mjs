@@ -421,6 +421,10 @@ READING
                                        items, stalled). --all = every project.
   launchpad search "<q>" [--json]      Across all projects
   launchpad log [--limit n] [--source agent|cli|ui]   Recent writes
+  launchpad timeline [--week 2026-W45|this|last|<date>] [--mine] [--json]
+                                       What was committed that ISO week (Mon–Sun, local
+                                       time) across every project, per day. --mine keeps
+                                       only commits by each repo's git user.email.
   launchpad tasks|ideas|notes [--all] [--json]        List items (--all includes archived)
   launchpad task|idea|note get <id>
 
@@ -715,6 +719,40 @@ async function cmdSearch(positional) {
       out(`  ${h.type.padEnd(7)} #${String(h.id).padEnd(4)} ${h.projectName} — ${h.title}`)
       if (h.snippet) out(`          ${h.snippet}`)
     }
+  })
+}
+
+async function cmdTimeline(positional) {
+  const week = flagText('week') ?? positional[1] ?? 'this'
+  const params = new URLSearchParams({ week })
+  if (bool(FLAGS.mine, false)) params.set('mine', 'true')
+  if (bool(FLAGS.refresh, false)) params.set('refresh', 'true')
+  const t = await getJson(`/api/timeline?${params.toString()}`)
+  emit(t, () => {
+    const projects = t.projects.length
+    out(`${t.week.label}  (${t.week.key})${t.mine ? '  · only mine' : ''}`)
+    if (t.total === 0) {
+      out(`  No commits${t.week.isFuture ? ' — that week has not happened yet' : ''}. Looked at ${t.reposScanned} repo(s).`)
+    } else {
+      out(`  ${t.total} commit(s) in ${projects} project(s): ${t.projects.map((p) => `${p.projectName} ${p.total}`).join(' · ')}`)
+      out()
+      for (const day of t.days) {
+        if (day.total === 0) {
+          out(`${day.label}  —`)
+          continue
+        }
+        out(`${day.label}  (${day.total})`)
+        for (const p of day.projects) {
+          out(`  ${p.projectName} (#${p.projectId})`)
+          for (const c of p.commits) {
+            const time = new Date(c.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+            out(`    ${time}  ${c.hash}  ${c.subject}${t.authors.length > 1 ? `  — ${c.author}` : ''}`)
+          }
+        }
+      }
+    }
+    for (const s of t.skipped) out(`  ! skipped ${s.projectName} (#${s.projectId}): ${s.reason}`)
+    out(`\nprev: ${t.week.prev}  next: ${t.week.next}`)
   })
 }
 
@@ -1318,6 +1356,7 @@ const COMMANDS = {
   status: cmdStatus,
   pull: () => cmdPull(FLAGS),
   audit: cmdAudit,
+  timeline: (p) => cmdTimeline(p),
   search: (p) => cmdSearch(p),
   log: cmdLog,
   set: (p) => cmdSet(p),

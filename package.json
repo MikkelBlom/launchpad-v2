@@ -31,7 +31,8 @@
     "pack": "npm run build && npm run bake && electron-builder --win --dir",
     "dist": "npm run build && npm run bake && electron-builder --win",
     "typecheck": "tsc --noEmit",
-    "cli": "node cli/launchpad.mjs"
+    "cli": "node cli/launchpad.mjs",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

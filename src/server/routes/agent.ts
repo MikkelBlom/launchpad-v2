@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { applyPush, PlanError } from '../services/agentPush.ts'
+import { applyReport, ReportError } from '../services/sessionReport.ts'
 import { auditAll, auditProject } from '../services/audit.ts'
 import { renderAgentPrompt, writeAgentInstructions } from '../services/agentDocs.ts'
 import { onboardAllProjects, onboardProject, OnboardError } from '../services/onboarding.ts'
@@ -17,6 +18,21 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
       return applyPush(id, (req.body ?? {}) as PushPlan, provenanceFrom(req), { dryRun })
     } catch (error) {
       if (error instanceof PlanError) return reply.code(400).send({ error: error.message })
+      throw error
+    }
+  })
+
+  // End-of-session handoff: decisions/deferred → needs-mikkel tasks, the report → one note.
+  // Runs through applyPush, so `?dryRun=true` is the same transaction, rolled back.
+  app.post('/projects/:id/report', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const dryRun = String((req.query as { dryRun?: string }).dryRun ?? '') === 'true'
+    try {
+      return applyReport(id, req.body, provenanceFrom(req), { dryRun })
+    } catch (error) {
+      if (error instanceof ReportError || error instanceof PlanError) {
+        return reply.code(400).send({ error: error.message })
+      }
       throw error
     }
   })

@@ -19,35 +19,43 @@ const BASE = (env.LAUNCHPAD_URL || 'http://localhost:7420').replace(/\/$/, '')
 //
 // Bump this whenever the CLI starts depending on a new server shape, in step with the
 // apiVersion in routes/system.ts.
-const REQUIRES_API = 5
+const REQUIRES_API = 6
 const BINDING_FILE = join('ai-instructions', '.launchpad.json')
 const SNAPSHOT_FILE = join('ai-instructions', '.launchpad-snapshot.json')
 
 // ---------------------------------------------------------------- args
 
+// `flags` keeps the last value of a repeated flag (what every command has always seen);
+// `multi` keeps every string value in order, for the few flags that are meant to repeat
+// (`launchpad report --decision … --decision …`).
 function parseArgs(args) {
   const positional = []
   const flags = {}
+  const multi = {}
+  const set = (key, value) => {
+    flags[key] = value
+    if (value !== true) (multi[key] ??= []).push(value)
+  }
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
     if (a.startsWith('--')) {
       const [key, inline] = a.slice(2).split(/=(.*)/s)
       if (inline !== undefined) {
-        flags[key] = inline
+        set(key, inline)
         continue
       }
       const next = args[i + 1]
       if (next !== undefined && !next.startsWith('--')) {
-        flags[key] = next
+        set(key, next)
         i++
       } else {
-        flags[key] = true
+        set(key, true)
       }
     } else {
       positional.push(a)
     }
   }
-  return { positional, flags }
+  return { positional, flags, multi }
 }
 
 const list = (value) =>
@@ -76,6 +84,7 @@ class CliError extends Error {}
 // ---------------------------------------------------------------- api
 
 let FLAGS = {}
+let MULTI = {}
 
 // Interactive terminal => a human is typing; piped/redirected => an agent is driving.
 // Either can be overridden with --source / --by.
@@ -504,6 +513,30 @@ BATCH PUSH — the fast way to set a project up
   · "project.tags" REPLACES the project's tag set; an item's "tags" replaces that item's set.
   · A title matching an ARCHIVED item is skipped with a warning, not recreated.
   · A full database backup is written before every real (non-dry-run) apply.
+
+SESSION REPORT — end every work session with one
+  launchpad report --summary "<what is now true>" [--title "<short name>"]
+                   [--decision "<choice Mikkel must make>"]…  [--deferred "<left undone, and why>"]…
+                   [--next "<suggested next step>"]…  [--dry-run] [--json]
+  launchpad report <report.json|-> [--dry-run] [--json]
+
+  Report schema:
+  { "title": "…", "summary": "…",
+    "decisions": [ "…" | { "title": "…", "body": "…" } ],
+    "deferred":  [ "…" | { "title": "…", "body": "…" } ],
+    "next":      [ "…" ] }
+
+  · Each decision / deferred item becomes a TASK tagged needs-mikkel + decision / deferred,
+    so it lands in Mikkel's Needs Mikkel inbox. --decision, --deferred and --next repeat.
+  · The whole report becomes ONE NOTE (source agent, tagged session-report) titled
+    "Session report — <date> — <title, or the summary's first line>".
+  · Same matching as push: re-running the identical report the same day creates nothing; an
+    item that already exists is updated in place (its tags left alone); an archived match is
+    skipped, not recreated.
+  · Example:
+      launchpad report --title "Port picker" --summary "Ports view now shows conflicts." \\
+        --decision "Refuse 3000 outright, or allow with --force?" \\
+        --deferred "Electron tray icon — needs a design" --next "Wire the tray menu"
 
 TYPICAL SETUP RUN
   launchpad onboard
@@ -1213,6 +1246,63 @@ async function cmdPush(positional) {
   })
 }
 
+// ---------------------------------------------------------------- commands: report
+
+async function cmdReport(positional) {
+  const source = positional[1]
+  const usage =
+    'Usage: launchpad report --summary "…" [--decision "…"]… [--deferred "…"]… [--next "…"]…\n' +
+    '                        [--title "…"] [--dry-run] [--json]\n' +
+    '   or: launchpad report <report.json|-> [--dry-run] [--json]'
+  let report
+  if (source) {
+    let raw
+    try {
+      raw = source === '-' ? readFileSync(0, 'utf-8') : readFileSync(source, 'utf-8')
+    } catch {
+      throw new CliError(`Cannot read report: ${source}`)
+    }
+    try {
+      report = JSON.parse(raw)
+    } catch (e) {
+      throw new CliError(`Report is not valid JSON: ${e.message}`)
+    }
+  } else {
+    const summary = flagText('summary')
+    if (!summary) throw new CliError(usage)
+    report = {
+      summary,
+      title: flagText('title'),
+      decisions: MULTI.decision ?? [],
+      deferred: MULTI.deferred ?? [],
+      next: MULTI.next ?? []
+    }
+  }
+
+  const project = await resolveProject(FLAGS)
+  const dryRun = FLAGS['dry-run'] === true || FLAGS.dryRun === true
+  const result = await post(
+    `/api/projects/${project.id}/report${dryRun ? '?dryRun=true' : ''}`,
+    report
+  )
+
+  emit(result, () => {
+    out(
+      `${dryRun ? 'DRY RUN — nothing written' : '✓ Session report recorded'} for "${result.projectName}" (#${result.projectId})`
+    )
+    out(`  note: ${result.noteTitle}`)
+    out(`  ${result.created} created · ${result.updated} updated · ${result.unchanged} unchanged`)
+    for (const c of result.changes) {
+      const mark = c.action === 'created' ? '+' : c.action === 'updated' ? '~' : '='
+      const fields = c.fields.length > 0 ? `  (${c.fields.join(', ')})` : ''
+      out(`   ${mark} ${c.type} ${c.id ? `#${c.id}` : ''} ${c.title}${fields}`)
+    }
+    for (const w of result.warnings) out(`   ! ${w}`)
+    if (result.backupPath) out(`  backup: ${result.backupPath}`)
+    if (dryRun) out('\n  Re-run without --dry-run to apply.')
+  })
+}
+
 // ---------------------------------------------------------------- router
 
 const COMMANDS = {
@@ -1244,12 +1334,14 @@ const COMMANDS = {
   note: (p) => cmdItem('note', p),
   notes: () => cmdItemList('note'),
   inbox: (p) => cmdInbox(p),
-  push: (p) => cmdPush(p)
+  push: (p) => cmdPush(p),
+  report: (p) => cmdReport(p)
 }
 
 async function main() {
-  const { positional, flags } = parseArgs(argv.slice(2))
+  const { positional, flags, multi } = parseArgs(argv.slice(2))
   FLAGS = flags
+  MULTI = multi
   const command = positional[0] || (flags.help ? 'guide' : 'pull')
   const handler = COMMANDS[command]
   if (!handler) {

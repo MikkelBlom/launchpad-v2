@@ -31,11 +31,11 @@ const PROJECT_STATUSES: ProjectStatus[] = ['active', 'idea', 'on-hold', 'done', 
 
 // Items are matched on a normalized title so re-running the same plan updates rather than
 // duplicates. Agents retry; without this a second run doubles every task.
-function key(title: string): string {
+export function key(title: string): string {
   return title.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-function fallbackTitle(item: { title?: string; body?: string }): string {
+export function fallbackTitle(item: { title?: string; body?: string }): string {
   const title = (item.title ?? '').trim()
   if (title) return title
   return (item.body ?? '').trim().slice(0, 80)

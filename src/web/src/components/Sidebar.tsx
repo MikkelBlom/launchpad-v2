@@ -2,9 +2,9 @@ import type { Project } from '../../../shared/types'
 import { ACTIVITY_META } from '../format'
 import { Button } from './ui'
 import { Logo } from './Logo'
-import { IconGitCommit, IconGrid, IconInbox, IconPlus, IconRefresh, IconSearch, IconServer, IconSettings, IconStar } from './icons'
+import { IconCalendar, IconGitCommit, IconGrid, IconInbox, IconPlus, IconRefresh, IconSearch, IconServer, IconSettings, IconStar } from './icons'
 
-type View = 'dashboard' | 'inbox' | 'activity' | 'ports' | 'settings'
+type View = 'dashboard' | 'inbox' | 'activity' | 'timeline' | 'ports' | 'settings'
 
 export function Sidebar({
   projects,
@@ -94,6 +94,7 @@ export function Sidebar({
       <div className="space-y-0.5 px-2">
         {navItem('dashboard', 'Projects', <IconGrid />)}
         {navItem('activity', 'Activity', <IconGitCommit />)}
+        {navItem('timeline', 'Timeline', <IconCalendar />)}
         {navItem('inbox', 'Inbox', <IconInbox />, inboxCount)}
         {navItem('ports', 'Ports', <IconServer />)}
         {navItem('settings', 'Settings', <IconSettings />)}

@@ -30,7 +30,8 @@ export async function systemRoutes(app: FastifyInstance): Promise<void> {
     port: getPort(),
     // 5 — a project claims many ports (`project_ports`); /api/ports returns claims, not
     // one row per project, and claiming refuses reserved/taken ports.
-    apiVersion: 5,
+    // 6 — GET /api/timeline: weekly git activity across every project.
+    apiVersion: 6,
     buildTime: BUILD_TIME
   }))
 

@@ -7,6 +7,7 @@ import { ProjectDetail } from './components/ProjectDetail'
 import { Settings } from './components/Settings'
 import { Inbox } from './components/Inbox'
 import { ActivityView } from './components/ActivityView'
+import { TimelineView } from './components/TimelineView'
 import { PortsView } from './components/PortsView'
 import { NewProjectModal } from './components/NewProjectModal'
 import { CaptureBar } from './components/CaptureBar'
@@ -14,7 +15,7 @@ import { Sidebar } from './components/Sidebar'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { ErrorBoundary, REQUIRES_API, StaleService } from './components/Fallbacks'
 
-type View = 'dashboard' | 'inbox' | 'activity' | 'ports' | 'settings'
+type View = 'dashboard' | 'inbox' | 'activity' | 'timeline' | 'ports' | 'settings'
 
 function Shell() {
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -82,6 +83,7 @@ function Shell() {
         if (e.key === 'd') goTo('dashboard')
         else if (e.key === 'i') goTo('inbox')
         else if (e.key === 'a') goTo('activity')
+        else if (e.key === 't') goTo('timeline')
         else if (e.key === 's') goTo('settings')
         return
       }
@@ -107,6 +109,7 @@ function Shell() {
     else if (action === 'dashboard') goTo('dashboard')
     else if (action === 'inbox') goTo('inbox')
     else if (action === 'activity') goTo('activity')
+    else if (action === 'timeline') goTo('timeline')
     else if (action === 'settings') goTo('settings')
   }
 
@@ -161,6 +164,8 @@ function Shell() {
             <Inbox projects={projects ?? []} onChanged={() => { refreshInbox(); refreshProjects() }} />
           ) : view === 'activity' ? (
             <ActivityView onOpenProject={openProject} />
+          ) : view === 'timeline' ? (
+            <TimelineView onOpenProject={openProject} />
           ) : view === 'ports' ? (
             <PortsView onOpenProject={openProject} />
           ) : (

@@ -317,6 +317,71 @@ export interface GitCommit {
   author: string
 }
 
+// ---- Weekly timeline (GET /api/timeline) ----
+
+export interface TimelineCommit {
+  hash: string // short hash
+  at: string // author date, ISO (UTC)
+  subject: string
+  author: string
+  authorEmail: string
+}
+
+export interface TimelineWeek {
+  key: string // "2026-W45"
+  year: number
+  week: number
+  start: string // local Monday 00:00, ISO
+  end: string // following Monday 00:00 (exclusive), ISO
+  days: string[] // seven local dates YYYY-MM-DD, Monday first
+  label: string // "Week 45 · 2–8 Nov 2026"
+  prev: string
+  next: string
+  isCurrent: boolean
+  isFuture: boolean
+}
+
+export interface TimelineDayProject {
+  projectId: number
+  projectName: string
+  commits: TimelineCommit[] // chronological
+}
+
+export interface TimelineDay {
+  date: string // YYYY-MM-DD, local
+  label: string // "Mon 2 Nov"
+  total: number
+  projects: TimelineDayProject[] // most commits first
+}
+
+export interface TimelineProjectTotal {
+  projectId: number
+  projectName: string
+  color: string | null
+  total: number
+  perDay: number[] // seven counts, Monday first
+}
+
+export interface TimelineAuthor {
+  name: string
+  email: string
+  count: number
+}
+
+export interface Timeline {
+  week: TimelineWeek
+  days: TimelineDay[]
+  projects: TimelineProjectTotal[] // only projects with commits, most first
+  total: number
+  authors: TimelineAuthor[]
+  // `?mine=true`: each repo's commits filtered to its own `git config user.email`.
+  mine: boolean
+  // Repos that were looked at but could not be read (timeout, git error) — said, not hidden.
+  skipped: Array<{ projectId: number; projectName: string; reason: string }>
+  reposScanned: number
+  generatedAt: string
+}
+
 export interface DashboardStats {
   total: number
   active: number

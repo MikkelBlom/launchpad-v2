@@ -10,13 +10,14 @@ import { ActivityView } from './components/ActivityView'
 import { TimelineView } from './components/TimelineView'
 import { PortsView } from './components/PortsView'
 import { NeedsMikkelView } from './components/NeedsMikkelView'
+import { HygieneView } from './components/HygieneView'
 import { NewProjectModal } from './components/NewProjectModal'
 import { CaptureBar } from './components/CaptureBar'
 import { Sidebar } from './components/Sidebar'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { ErrorBoundary, REQUIRES_API, StaleService } from './components/Fallbacks'
 
-type View = 'dashboard' | 'inbox' | 'needs-mikkel' | 'activity' | 'timeline' | 'ports' | 'settings'
+type View = 'dashboard' | 'inbox' | 'needs-mikkel' | 'activity' | 'timeline' | 'ports' | 'hygiene' | 'settings'
 
 function Shell() {
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -206,6 +207,8 @@ function Shell() {
             <TimelineView onOpenProject={openProject} />
           ) : view === 'ports' ? (
             <PortsView onOpenProject={openProject} />
+          ) : view === 'hygiene' ? (
+            <HygieneView onOpenProject={openProject} />
           ) : (
             <Settings onChanged={refreshProjects} />
           )}

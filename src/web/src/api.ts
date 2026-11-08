@@ -8,6 +8,7 @@ import type {
   DiscoveryResult,
   DuplicateGroup,
   GitCommit,
+  HygieneOverview,
   Idea,
   ItemType,
   LaunchProfile,
@@ -24,6 +25,7 @@ import type {
   Project,
   ProjectAudit,
   ProjectDiff,
+  ProjectHygiene,
   ProjectStatus,
   PushPlan,
   PushResult,
@@ -116,6 +118,12 @@ export const api = {
     req<{ ok: boolean; service: string; port: number; apiVersion: number; buildTime: number }>(
       '/health'
     ),
+
+  // Hygiene: a read-only cleanup report. The overview answers from cache and refreshes in
+  // the background — poll while `scanning`.
+  hygiene: (refresh = false) => req<HygieneOverview>(`/hygiene${refresh ? '?refresh=true' : ''}`),
+  projectHygiene: (id: number, refresh = false) =>
+    req<ProjectHygiene>(`/projects/${id}/hygiene${refresh ? '?refresh=true' : ''}`),
 
   // Dev server ports. A project claims one per process it runs.
   ports: () => req<PortOverview>('/ports'),

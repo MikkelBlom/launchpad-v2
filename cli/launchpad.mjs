@@ -419,6 +419,14 @@ READING
   launchpad status [--json]            Status, git state, counts
   launchpad audit [--all] [--json]     What's missing (no description/tags/tasks, untagged
                                        items, stalled). --all = every project.
+  launchpad hygiene [--all] [--refresh] [--json]
+                                       What could be cleaned up: uncommitted work, unpushed
+                                       commits, stale worktrees, merged branches, and big
+                                       regenerable folders (node_modules, target/, .venv…)
+                                       with their sizes. Read-only: each finding carries a
+                                       SUGGESTED command — Launchpad never runs it. Do not run
+                                       one yourself without Mikkel's say-so; deleting is his call.
+                                       --all = every project, biggest cleanup first.
   launchpad search "<q>" [--json]      Across all projects
   launchpad log [--limit n] [--source agent|cli|ui]   Recent writes
   launchpad timeline [--week 2026-W45|this|last|<date>] [--mine] [--json]
@@ -720,6 +728,64 @@ async function cmdAudit() {
     out(`${audit.name}  #${audit.projectId}  [${audit.status}]`)
     if (audit.issues.length === 0) return out('  ✓ Nothing missing.')
     for (const issue of audit.issues) out(`  · ${issue.detail}`)
+  })
+}
+
+function formatBytes(n) {
+  if (!n) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
+  return `${(n / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function printHygiene(h) {
+  const size = h.reclaimableBytes
+    ? `  ·  ${h.reclaimableIsLowerBound ? '≥ ' : ''}${formatBytes(h.reclaimableBytes)} reclaimable`
+    : ''
+  out(`${h.name}  #${h.projectId}${size}`)
+  if (h.error) out(`  ! ${h.error}`)
+  if (h.findings.length === 0) return out('  ✓ Nothing to clean up.')
+  for (const f of h.findings) {
+    const bytes = f.bytes !== null ? `  [${f.bytesExact ? '' : '≥ '}${formatBytes(f.bytes)}]` : ''
+    out(`  · ${f.title}${bytes}`)
+    if (f.detail) out(`      ${f.detail}`)
+    for (const item of f.items.slice(0, 5)) out(`        - ${item}`)
+    if (f.command) out(`      $ ${f.command}`)
+  }
+}
+
+// Read-only on both ends: the service only reports, and this prints the suggested commands
+// rather than running any of them.
+async function cmdHygiene() {
+  const refresh = FLAGS.refresh ? '?refresh=true' : ''
+  if (FLAGS.all) {
+    let overview = await getJson(`/api/hygiene${refresh}`)
+    // The overview answers from cache and refreshes in the background; a CLI run has no
+    // later poll, so wait (bounded) for that refresh to land.
+    const deadline = Date.now() + 120_000
+    while (overview.scanning && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1000))
+      overview = await getJson('/api/hygiene')
+    }
+    emit(overview, () => {
+      const withFindings = overview.projects.filter((h) => h.findings.length > 0 || h.error)
+      if (withFindings.length === 0) out('✓ Nothing to clean up across any project.')
+      for (const h of withFindings) {
+        out('')
+        printHygiene(h)
+      }
+      const total = overview.projects.reduce((n, h) => n + h.reclaimableBytes, 0)
+      out(`\n${withFindings.length} of ${overview.projects.length} project(s) have something to clean · ${formatBytes(total)} reclaimable`)
+      if (overview.scanning) out(`! Still scanning (${overview.pending} not done) — run again for the rest.`)
+      out('Suggested commands are never run for you.')
+    })
+    return
+  }
+  const project = await resolveProject(FLAGS)
+  const h = await getJson(`/api/projects/${project.id}/hygiene${refresh}`)
+  emit(h, () => {
+    printHygiene(h)
+    out(`  (scanned ${h.scannedAt.slice(0, 19).replace('T', ' ')} in ${h.durationMs} ms — --refresh to rescan)`)
   })
 }
 
@@ -1429,6 +1495,7 @@ const COMMANDS = {
   pull: () => cmdPull(FLAGS),
   audit: cmdAudit,
   timeline: (p) => cmdTimeline(p),
+  hygiene: cmdHygiene,
   search: (p) => cmdSearch(p),
   log: cmdLog,
   set: (p) => cmdSet(p),

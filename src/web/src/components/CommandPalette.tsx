@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Project, SearchHit } from '../../../shared/types'
 import { api } from '../api'
 
-export type PaletteAction = 'new' | 'scan' | 'dashboard' | 'inbox' | 'activity' | 'timeline' | 'settings'
+export type PaletteAction = 'new' | 'scan' | 'dashboard' | 'inbox' | 'needs-mikkel' | 'activity' | 'timeline' | 'settings'
 
 interface Item {
   key: string
@@ -55,6 +55,7 @@ export function CommandPalette({
       { key: 'a-activity', label: 'Go to Activity', hint: 'action', run: () => onAction('activity') },
       { key: 'a-timeline', label: 'Go to Timeline (this week)', hint: 'action', run: () => onAction('timeline') },
       { key: 'a-inbox', label: 'Go to Inbox', hint: 'action', run: () => onAction('inbox') },
+      { key: 'a-needs-mikkel', label: 'Go to Needs Mikkel', hint: 'action', run: () => onAction('needs-mikkel') },
       { key: 'a-settings', label: 'Go to Settings', hint: 'action', run: () => onAction('settings') }
     ].filter((a) => !q || a.label.toLowerCase().includes(q))
 

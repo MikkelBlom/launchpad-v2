@@ -526,7 +526,8 @@ function reloadUi() {
   else win.loadURL(uiUrl())
 }
 
-function createWindow() {
+// `hash` picks the view the window opens on (`#needs-mikkel`); the UI clears it once handled.
+function createWindow(hash = '') {
   win = new BrowserWindow({
     width: 1180,
     height: 820,
@@ -539,7 +540,7 @@ function createWindow() {
     webPreferences: { preload: join(__dirname, 'preload.cjs') }
   })
   win.setMenuBarVisibility(false)
-  win.loadURL(uiUrl())
+  win.loadURL(uiUrl() + hash)
 
   // The page sets its own <title>, which would overwrite the dev marker.
   win.on('page-title-updated', (e) => {
@@ -599,6 +600,57 @@ function showWindow() {
   }
 }
 
+// ---- "Needs Mikkel" count in the tray ----
+// Items tagged needs-mikkel are written by agents while nobody is looking at the window, so
+// the tray polls the service's cheap count endpoint. null = unknown (service down, starting,
+// or too old to have the endpoint): the tray then shows no number rather than a wrong one.
+const NEEDS_MIKKEL_POLL_MS = 60 * 1000
+let needsMikkelCount = null
+
+async function fetchNeedsMikkelCount() {
+  try {
+    const res = await fetch(`http://localhost:${PORT}/api/needs-mikkel/count`, {
+      signal: AbortSignal.timeout(3000)
+    })
+    if (!res.ok) return null
+    const count = Number((await res.json())?.count)
+    return Number.isFinite(count) ? count : null
+  } catch {
+    return null
+  }
+}
+
+function trayTooltip() {
+  if (!needsMikkelCount) return WINDOW_TITLE
+  const n = needsMikkelCount
+  return `${WINDOW_TITLE} — ${n} item${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} Mikkel`
+}
+
+// The menu is rebuilt only when the count changes, so an open tray menu is not swapped under
+// the cursor once a minute.
+async function pollNeedsMikkel() {
+  const next = await fetchNeedsMikkelCount()
+  if (next === needsMikkelCount) return
+  needsMikkelCount = next
+  if (!tray) return
+  tray.setToolTip(trayTooltip())
+  refreshTray()
+}
+
+function showNeedsMikkel() {
+  if (!win) {
+    createWindow('#needs-mikkel')
+    return
+  }
+  win.show()
+  win.focus()
+  // The UI listens for hashchange; a window whose page never loaded has no listener, so load it.
+  win.webContents
+    .executeJavaScript("location.hash = 'needs-mikkel'")
+    .catch(() => win && win.loadURL(uiUrl() + '#needs-mikkel'))
+  void pollNeedsMikkel()
+}
+
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
     // A permanent reminder of which copy this is, and that it is not a sandbox.
@@ -609,6 +661,10 @@ function buildTrayMenu() {
         ]
       : []),
     { label: 'Open Launchpad', click: showWindow },
+    {
+      label: needsMikkelCount === null ? 'Needs Mikkel' : `Needs Mikkel (${needsMikkelCount})`,
+      click: showNeedsMikkel
+    },
     { label: 'Open in browser', click: () => shell.openExternal(uiUrl()) },
     { type: 'separator' },
     // Picking up a code change without reinstalling anything: reload for UI, restart for server.
@@ -657,9 +713,10 @@ function refreshTray() {
 function createTray() {
   const icon = nativeImage.createFromPath(TRAY_ICON)
   tray = new Tray(icon)
-  tray.setToolTip(WINDOW_TITLE)
+  tray.setToolTip(trayTooltip())
   tray.setContextMenu(buildTrayMenu())
   tray.on('click', showWindow)
+  setInterval(() => void pollNeedsMikkel(), NEEDS_MIKKEL_POLL_MS)
 }
 
 // One shell per channel. This matters most now that Windows starts Launchpad at login: clicking
@@ -720,6 +777,7 @@ if (!app.requestSingleInstanceLock()) {
     // Only once the service is up can the database say what start-at-login should be.
     // If it never comes up, the login item is left untouched rather than guessed at.
     await reconcileStartAtLogin()
+    void pollNeedsMikkel()
     // At login the app belongs in the tray; the window is created lazily on first open.
     if (!START_HIDDEN) createWindow()
   })

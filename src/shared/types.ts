@@ -548,3 +548,38 @@ export interface SessionReport {
 export interface SessionReportResult extends PushResult {
   noteTitle: string
 }
+
+// ---- "Needs Mikkel" inbox ----
+// Every open task/idea/note in any project that carries the needs-mikkel item tag.
+export interface NeedsMikkelItem {
+  kind: ItemType
+  id: number
+  projectId: number
+  title: string
+  // The body flattened to one line and cut at ~200 characters — enough to decide on.
+  excerpt: string
+  // Task: todo/doing. Idea: open. Note: null (notes have no status).
+  status: TaskStatus | IdeaStatus | null
+  // Tasks and ideas only.
+  priority: Priority | null
+  tags: Tag[]
+  source: WriteSource
+  updatedBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface NeedsMikkelGroup {
+  projectId: number
+  projectName: string
+  projectPath: string
+  // updatedAt of the group's newest item; groups are ordered by it, newest first.
+  latestAt: string
+  items: NeedsMikkelItem[]
+}
+
+export interface NeedsMikkelInbox {
+  tag: string
+  total: number
+  groups: NeedsMikkelGroup[]
+}

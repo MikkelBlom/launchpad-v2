@@ -495,10 +495,24 @@ NOTES
   launchpad note archive <id> | unarchive <id>
   launchpad note tag <id> <name> | untag <id> <name>
 
-INBOX (quick captures not yet filed to a project)
-  launchpad inbox [--json]
-  launchpad inbox file <captureId> --as task|idea|note [--project p]
-  launchpad inbox clear                Mark everything processed
+NEEDS MIKKEL — the cross-project list of things waiting on Mikkel
+  Tag any task/idea/note "needs-mikkel" when it needs his decision or action:
+    launchpad task tag <id> needs-mikkel     (or "tags": ["needs-mikkel"] in a push plan)
+  Remove the tag (… untag <id> needs-mikkel) once it no longer needs him.
+
+  launchpad inbox [--json]             Every OPEN item tagged needs-mikkel in ANY project
+                                       (tasks not done/archived, ideas still open, notes not
+                                       archived), grouped by project, newest first. Ends with
+                                       a count of unfiled captures, if any.
+  launchpad inbox done <task|idea|note> <id>      Task → done. Ideas and notes have no done
+                                       state, so they are archived.
+  launchpad inbox archive <task|idea|note> <id>
+
+CAPTURES (quick captures not yet filed to a project)
+  launchpad captures [--json]
+  launchpad captures file <captureId> --as task|idea|note [--project p]
+  launchpad captures clear             Mark everything processed
+  (launchpad inbox list|file|clear still work as aliases of these.)
 
 BATCH PUSH — the fast way to set a project up
   launchpad push <plan.json|-> [--dry-run] [--json]
@@ -1195,16 +1209,74 @@ async function cmdItem(kind, positional) {
   throw new CliError(`Unknown ${kind} command "${action}". Run: launchpad guide`)
 }
 
-// ---------------------------------------------------------------- commands: inbox
+// ---------------------------------------------------------------- commands: needs-Mikkel inbox
+
+// The tag lives server-side in services/needsMikkel.ts (NEEDS_MIKKEL_TAG); the CLI only reads
+// it back from the response, so the name is never written down twice.
+const DONE_LABEL = { task: 'completed', idea: 'archived (ideas have no done state)', note: 'archived (notes have no done state)' }
+
+function printNeedsItem(i) {
+  const bits = [i.kind.padEnd(4), `#${String(i.id).padEnd(4)}`]
+  if (i.priority) bits.push(`(${i.priority.padEnd(6)})`)
+  if (i.kind === 'task' && i.status) bits.push(`[${i.status}]`)
+  const title = i.title || i.excerpt || '(untitled)'
+  const by = i.updatedBy ? `${i.source}:${i.updatedBy}` : i.source
+  out(`  ${bits.join(' ')} ${title}  · ${by} ${String(i.updatedAt).slice(0, 10)}`)
+  if (i.title && i.excerpt) out(`             ${i.excerpt}`)
+}
 
 async function cmdInbox(positional) {
+  const action = positional[1]
+
+  // The capture verbs moved to `launchpad captures`; these stay so nothing an agent learned breaks.
+  if (action === 'list' || action === 'file' || action === 'clear') return cmdCaptures(positional)
+
+  if (action === 'done' || action === 'archive') {
+    const kind = positional[2]
+    const id = Number(positional[3])
+    if (!KINDS[kind] || !Number.isFinite(id)) {
+      throw new CliError(`Usage: launchpad inbox ${action} task|idea|note <id>`)
+    }
+    const { segment, label } = KINDS[kind]
+    // Same endpoints as `launchpad task done` and `… archive`, so provenance and the change log come with them.
+    const item =
+      action === 'done' && kind === 'task'
+        ? await patch(`/api/tasks/${id}`, { status: 'done' })
+        : await post(`/api/${segment}/${id}/archive`, { archived: true })
+    emit(item, () =>
+      out(`✓ ${label} #${id} ${action === 'done' ? DONE_LABEL[kind] : 'archived'}: ${item.title || item.body?.slice(0, 60) || ''}`)
+    )
+    return
+  }
+
+  if (action) throw new CliError('Usage: launchpad inbox [--json] | inbox done|archive task|idea|note <id>')
+
+  const [inbox, captures] = await Promise.all([getJson('/api/needs-mikkel'), getJson('/api/captures')])
+  const unfiled = captures.filter((c) => !c.processed).length
+  emit({ ...inbox, unfiledCaptures: unfiled }, () => {
+    if (inbox.total === 0) out(`Nothing needs Mikkel (no open item tagged "${inbox.tag}").`)
+    else {
+      out(`Needs Mikkel — ${inbox.total} item(s) tagged "${inbox.tag}"`)
+      for (const g of inbox.groups) {
+        out(`\n${g.projectName}  (#${g.projectId}, ${g.items.length})`)
+        for (const i of g.items) printNeedsItem(i)
+      }
+      out(`\n  Act on one: launchpad inbox done|archive <kind> <id>`)
+    }
+    if (unfiled > 0) out(`\n${unfiled} unfiled capture(s) — run: launchpad captures`)
+  })
+}
+
+// ---------------------------------------------------------------- commands: captures
+
+async function cmdCaptures(positional) {
   const action = positional[1]
 
   if (!action || action === 'list') {
     const captures = await getJson('/api/captures')
     const open = captures.filter((c) => !c.processed)
     emit(open, () => {
-      if (open.length === 0) return out('Inbox is empty.')
+      if (open.length === 0) return out('No unfiled captures.')
       for (const c of open) {
         out(`  #${String(c.id).padEnd(4)} ${c.kind.padEnd(5)} ${c.text}${c.url ? `  (${c.url})` : ''}`)
       }
@@ -1215,7 +1287,7 @@ async function cmdInbox(positional) {
 
   if (action === 'file') {
     const id = Number(positional[2])
-    if (!Number.isFinite(id)) throw new CliError('Usage: launchpad inbox file <captureId> --as task|idea|note')
+    if (!Number.isFinite(id)) throw new CliError('Usage: launchpad captures file <captureId> --as task|idea|note')
     const as = FLAGS.as && FLAGS.as !== true ? String(FLAGS.as) : 'task'
     if (!KINDS[as]) throw new CliError('--as must be task, idea or note')
     const captures = await getJson('/api/captures')
@@ -1238,7 +1310,7 @@ async function cmdInbox(positional) {
     return
   }
 
-  throw new CliError('Usage: launchpad inbox [list|file <id> --as task|idea|note|clear]')
+  throw new CliError('Usage: launchpad captures [list|file <id> --as task|idea|note|clear]')
 }
 
 // ---------------------------------------------------------------- commands: push
@@ -1373,6 +1445,7 @@ const COMMANDS = {
   note: (p) => cmdItem('note', p),
   notes: () => cmdItemList('note'),
   inbox: (p) => cmdInbox(p),
+  captures: (p) => cmdCaptures(p),
   push: (p) => cmdPush(p),
   report: (p) => cmdReport(p)
 }

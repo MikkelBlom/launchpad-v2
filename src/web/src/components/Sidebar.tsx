@@ -2,15 +2,16 @@ import type { Project } from '../../../shared/types'
 import { ACTIVITY_META } from '../format'
 import { Button } from './ui'
 import { Logo } from './Logo'
-import { IconCalendar, IconGitCommit, IconGrid, IconInbox, IconPlus, IconRefresh, IconSearch, IconServer, IconSettings, IconStar } from './icons'
+import { IconCalendar, IconFlag, IconGitCommit, IconGrid, IconInbox, IconPlus, IconRefresh, IconSearch, IconServer, IconSettings, IconStar } from './icons'
 
-type View = 'dashboard' | 'inbox' | 'activity' | 'timeline' | 'ports' | 'settings'
+type View = 'dashboard' | 'inbox' | 'needs-mikkel' | 'activity' | 'timeline' | 'ports' | 'settings'
 
 export function Sidebar({
   projects,
   view,
   selectedId,
   inboxCount,
+  needsMikkelCount,
   scanning,
   onNav,
   onOpenProject,
@@ -24,6 +25,7 @@ export function Sidebar({
   view: View
   selectedId: number | null
   inboxCount: number
+  needsMikkelCount: number
   scanning: boolean
   onNav: (view: View) => void
   onOpenProject: (id: number) => void
@@ -94,6 +96,7 @@ export function Sidebar({
       <div className="space-y-0.5 px-2">
         {navItem('dashboard', 'Projects', <IconGrid />)}
         {navItem('activity', 'Activity', <IconGitCommit />)}
+        {navItem('needs-mikkel', 'Needs Mikkel', <IconFlag />, needsMikkelCount)}
         {navItem('timeline', 'Timeline', <IconCalendar />)}
         {navItem('inbox', 'Inbox', <IconInbox />, inboxCount)}
         {navItem('ports', 'Ports', <IconServer />)}

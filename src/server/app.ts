@@ -17,6 +17,7 @@ import { agentRoutes } from './routes/agent.ts'
 import { vercelRoutes } from './routes/vercel.ts'
 import { portRoutes } from './routes/ports.ts'
 import { timelineRoutes } from './routes/timeline.ts'
+import { needsMikkelRoutes } from './routes/needsMikkel.ts'
 
 export async function createServer(): Promise<FastifyInstance> {
   getDb() // open connection + run migrations up front
@@ -52,6 +53,7 @@ export async function createServer(): Promise<FastifyInstance> {
       await vercelRoutes(api)
       await portRoutes(api)
       await timelineRoutes(api)
+      await needsMikkelRoutes(api)
     },
     { prefix: '/api' }
   )

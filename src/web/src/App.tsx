@@ -9,13 +9,14 @@ import { Inbox } from './components/Inbox'
 import { ActivityView } from './components/ActivityView'
 import { TimelineView } from './components/TimelineView'
 import { PortsView } from './components/PortsView'
+import { NeedsMikkelView } from './components/NeedsMikkelView'
 import { NewProjectModal } from './components/NewProjectModal'
 import { CaptureBar } from './components/CaptureBar'
 import { Sidebar } from './components/Sidebar'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { ErrorBoundary, REQUIRES_API, StaleService } from './components/Fallbacks'
 
-type View = 'dashboard' | 'inbox' | 'activity' | 'timeline' | 'ports' | 'settings'
+type View = 'dashboard' | 'inbox' | 'needs-mikkel' | 'activity' | 'timeline' | 'ports' | 'settings'
 
 function Shell() {
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -25,6 +26,7 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
   const [inboxCount, setInboxCount] = useState(0)
+  const [needsMikkelCount, setNeedsMikkelCount] = useState(0)
   const [scanning, setScanning] = useState(false)
   const gotoPending = useRef(false)
   const toast = useToast()
@@ -35,18 +37,46 @@ function Shell() {
   const refreshInbox = useCallback(async () => {
     setInboxCount((await api.listCaptures()).length)
   }, [])
+  // Agents tag items while the window sits in the background, so this one is re-read on
+  // focus. A failed read keeps the last count rather than flashing it to zero.
+  const refreshNeedsMikkel = useCallback(async () => {
+    try {
+      setNeedsMikkelCount((await api.needsMikkelCount()).count)
+    } catch {
+      /* service briefly unreachable — keep the last count */
+    }
+  }, [])
 
   useEffect(() => {
     refreshProjects()
     refreshInbox()
-  }, [refreshProjects, refreshInbox])
+    refreshNeedsMikkel()
+  }, [refreshProjects, refreshInbox, refreshNeedsMikkel])
 
   // Re-read project state when the window regains focus (git status may have changed).
   useEffect(() => {
-    const onFocus = () => refreshProjects()
+    const onFocus = () => {
+      refreshProjects()
+      refreshNeedsMikkel()
+    }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [refreshProjects])
+  }, [refreshProjects, refreshNeedsMikkel])
+
+  // `#needs-mikkel` opens that view — it is how the tray's "Needs Mikkel (N)" item lands here.
+  // The hash is cleared once handled so the same link works again next time.
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash !== '#needs-mikkel') return
+      setView('needs-mikkel')
+      setSelectedId(null)
+      refreshNeedsMikkel()
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
+    onHash()
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [refreshNeedsMikkel])
 
   const openProject = (id: number) => setSelectedId(id)
   const goTo = (v: View) => {
@@ -82,6 +112,7 @@ function Shell() {
         gotoPending.current = false
         if (e.key === 'd') goTo('dashboard')
         else if (e.key === 'i') goTo('inbox')
+        else if (e.key === 'm') goTo('needs-mikkel')
         else if (e.key === 'a') goTo('activity')
         else if (e.key === 't') goTo('timeline')
         else if (e.key === 's') goTo('settings')
@@ -108,6 +139,7 @@ function Shell() {
     else if (action === 'scan') runScan()
     else if (action === 'dashboard') goTo('dashboard')
     else if (action === 'inbox') goTo('inbox')
+    else if (action === 'needs-mikkel') goTo('needs-mikkel')
     else if (action === 'activity') goTo('activity')
     else if (action === 'timeline') goTo('timeline')
     else if (action === 'settings') goTo('settings')
@@ -122,6 +154,7 @@ function Shell() {
         view={view}
         selectedId={selectedId}
         inboxCount={inboxCount}
+        needsMikkelCount={needsMikkelCount}
         scanning={scanning}
         onNav={goTo}
         onOpenProject={openProject}
@@ -162,6 +195,11 @@ function Shell() {
             />
           ) : view === 'inbox' ? (
             <Inbox projects={projects ?? []} onChanged={() => { refreshInbox(); refreshProjects() }} />
+          ) : view === 'needs-mikkel' ? (
+            <NeedsMikkelView
+              onOpenProject={openProject}
+              onChanged={() => { refreshNeedsMikkel(); refreshProjects() }}
+            />
           ) : view === 'activity' ? (
             <ActivityView onOpenProject={openProject} />
           ) : view === 'timeline' ? (

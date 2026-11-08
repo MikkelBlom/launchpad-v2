@@ -33,6 +33,10 @@ Every \`launchpad\` command run inside this folder targets project #${project.id
 Write back with \`launchpad task add "…"\`, \`launchpad idea add "…"\`, \`launchpad note add "…"\`,
 \`launchpad set description "…"\`, \`launchpad tag add <name>\`, or a batch \`launchpad push plan.json\`.
 
+**At the end of every session**, run \`launchpad report --summary "…" --decision "…" --deferred "…" --next "…"\`
+(each flag repeats; or \`launchpad report report.json\`) so decisions and deferred items reach Mikkel's
+Needs Mikkel inbox as tasks, and the session is kept as a note.
+
 **Dev server ports.** ${
     project.ports.length > 0
       ? `This project runs on ${project.ports

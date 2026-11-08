@@ -465,3 +465,21 @@ export interface PushResult {
   warnings: string[]
   backupPath: string | null
 }
+
+// ---- Session report (`launchpad report`) ----
+// An agent's end-of-session handoff. Decisions and deferred items become tasks tagged
+// `needs-mikkel`; the whole report becomes one note. See services/sessionReport.ts.
+
+export type SessionReportItem = string | { title: string; body?: string }
+
+export interface SessionReport {
+  title?: string
+  summary: string
+  decisions?: SessionReportItem[]
+  deferred?: SessionReportItem[]
+  next?: string[]
+}
+
+export interface SessionReportResult extends PushResult {
+  noteTitle: string
+}

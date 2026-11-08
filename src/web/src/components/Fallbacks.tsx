@@ -11,7 +11,7 @@ const panel =
 
 // The API version these assets were built against. Bump in step with `apiVersion` in
 // routes/system.ts whenever the UI starts depending on a new server shape.
-export const REQUIRES_API = 5
+export const REQUIRES_API = 6
 
 export function StaleService({ apiVersion }: { apiVersion: number }) {
   return (

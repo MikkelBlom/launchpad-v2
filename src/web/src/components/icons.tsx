@@ -205,3 +205,17 @@ export const IconRobot = (p: IconProps) => (
     <circle cx="15" cy="14" r="1" />
   </svg>
 )
+
+// The "Needs Mikkel" inbox: a flag on things waiting for him.
+export const IconFlag = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+    <line x1="4" y1="22" x2="4" y2="15" />
+  </svg>
+)
+
+export const IconCheck = (p: IconProps) => (
+  <svg {...base(p)}>
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+)

@@ -11,6 +11,7 @@ import type {
   Idea,
   ItemType,
   LaunchProfile,
+  NeedsMikkelInbox,
   Note,
   OnboardResult,
   PortCheck,
@@ -258,6 +259,11 @@ export const api = {
     req<T>(`/${SEGMENT[type]}/${id}/tags/${tagId}`, { method: 'DELETE' }),
   setItemTags: <T>(type: ItemType, id: number, names: string[]) =>
     req<T>(`/${SEGMENT[type]}/${id}/tags`, { method: 'PUT', ...body({ names }) }),
+
+  // "Needs Mikkel": open items in any project tagged needs-mikkel. Acting on one goes
+  // through updateTask / archiveItem, the same endpoints the project view uses.
+  needsMikkel: () => req<NeedsMikkelInbox>('/needs-mikkel'),
+  needsMikkelCount: () => req<{ tag: string; count: number }>('/needs-mikkel/count'),
 
   // Archiving — the reversible alternative to deletion
   archiveItem: <T>(type: ItemType, id: number, archived = true) =>

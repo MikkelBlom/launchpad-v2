@@ -132,8 +132,15 @@ test('stale and missing worktrees are reported; worktree folders are not sized a
   const parent = tempDir()
   const merged = join(parent, 'wt-merged')
   const gone = join(parent, 'wt-gone')
-  // Both branches sit on main's tip, so git counts them as merged.
+  // wt-merged gets a commit of its own that is then merged back into main.
   git(dir, 'worktree', 'add', '-q', '-b', 'wt-merged', merged)
+  writeFileSync(join(merged, 'feature.txt'), 'x')
+  git(merged, 'add', 'feature.txt')
+  git(merged, 'commit', '-q', '-m', 'feature')
+  git(dir, 'merge', '-q', '--no-ff', '-m', 'merge feature', 'wt-merged')
+  // wt-fresh was just created and sits on main's tip: merged only trivially, so not stale.
+  const fresh = join(parent, 'wt-fresh')
+  git(dir, 'worktree', 'add', '-q', '-b', 'wt-fresh', fresh)
   git(dir, 'worktree', 'add', '-q', '-b', 'wt-gone', gone)
   rmSync(gone, { recursive: true, force: true })
   const inside = join(dir, '.claude', 'worktrees', 'inner')
@@ -149,6 +156,7 @@ test('stale and missing worktrees are reported; worktree folders are not sized a
   assert.ok(stale, 'expected the merged worktree to be stale')
   assert.match(stale.detail ?? '', /merged into main/)
   assert.match(stale.command ?? '', /^git worktree remove /)
+  assert.equal(worktrees.find((f) => f.items.includes('wt-fresh')), undefined, 'a brand-new worktree is not stale')
   // The worktree branches are checked out, so they are not offered for `git branch -d`.
   assert.equal(only(r, 'merged-branches').length, 0)
   assert.equal(only(r, 'regenerable').length, 0, 'a worktree nested in the project is its own checkout')

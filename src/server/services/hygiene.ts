@@ -304,6 +304,10 @@ async function branchAndWorktreeFindings(
   const linked = worktrees.slice(1).filter((w) => !w.bare)
   const checkedOut = new Set(worktrees.map((w) => w.branch).filter((b): b is string => Boolean(b)))
   const now = Date.now()
+  // A branch that sits exactly on the default branch's tip has no work of its own yet: it is
+  // "merged" only in the trivial sense. That is every freshly created agent worktree, so
+  // flagging it would make the panel cry wolf. Such a worktree is stale only once it is old.
+  const baseTip = base ? (await tryGit(root, ['rev-parse', base]))?.trim() || null : null
 
   for (const wt of linked) {
     const display = relativeOrAbsolute(root, wt.path)
@@ -325,7 +329,8 @@ async function branchAndWorktreeFindings(
     const committedAt = wt.head ? Number((await tryGit(root, ['log', '-1', '--format=%ct', wt.head]))?.trim()) : NaN
     const since = Number.isFinite(committedAt) && committedAt > 0 ? new Date(committedAt * 1000).toISOString() : null
     const old = since !== null && now - committedAt * 1000 > STALE_DAYS * DAY_MS
-    const isMerged = wt.branch !== null && wt.branch !== base && merged.has(wt.branch)
+    const atBaseTip = baseTip !== null && wt.head === baseTip
+    const isMerged = wt.branch !== null && wt.branch !== base && merged.has(wt.branch) && !atBaseTip
     if (!old && !isMerged) continue
     const reasons = [
       isMerged ? `branch ${wt.branch} is merged into ${base}` : '',

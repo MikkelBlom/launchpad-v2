@@ -364,6 +364,62 @@ window only calls `ensureServer()` from `did-fail-load`, so an already-loaded wi
 there. Recover with tray → **Restart server** (which stops adopted servers too), or by reloading
 the window. Prefer that tray item over killing the process in the first place.
 
+## The four "what needs me" features (2026-11-08)
+
+Built by four parallel agents and merged on one branch. None needed a migration; all four bumped
+`apiVersion` to 6 together.
+
+**Needs Mikkel inbox.** No new write endpoints: Done/Archive reuse `PATCH /tasks/:id` and
+`POST /{ideas,notes}/:id/archive`, which already carry provenance. Ideas have no done state
+(`open | promoted | archived`), so Done on an idea or a note *archives* it (reversible). Promoting
+was rejected because the new task inherits the tag and drops straight back into the inbox; for the
+same reason promoted ideas are excluded. Tag match is case-insensitive like `getOrCreateTag`.
+Items in archived projects still show — a tagged open item is still waiting. The tray treats a
+down/old/slow (>3 s) service as "unknown" and shows no number rather than 0, and rebuilds its menu
+only when the count changes. The tray reaches the view by setting `location.hash`; the UI clears the
+hash with `replaceState` so the next click fires `hashchange` again.
+*Why `inbox` changed meaning:* the brief asked for `launchpad inbox`. The capture verbs moved to
+`launchpad captures`, and `inbox list|file|clear` stay as aliases, so only *bare* `inbox` changed.
+
+**Session report.** Built as a push plan through `applyPush`, so there is no second write path.
+Items that already exist are sent *without* `tags`, because push replaces a whole tag set:
+re-sending would wipe tags Mikkel added and re-flag a task he deliberately un-flagged.
+Status/priority are never sent, so a closed task stays closed on re-run. The note is idempotent by
+title (date + title, or the summary's first 60 chars); the date is the server's local date, so the
+same report on another day is a new note. Source is forced to `agent` (a session report is by
+definition an agent's handoff; the CLI would otherwise label a TTY run `cli`), so `--source` is
+ignored for `report`. `parseArgs` now also returns a `multi` map (global `MULTI`) for repeated
+flags; `FLAGS` still holds the last value, so nothing else changed. `key()`/`fallbackTitle()` are
+exported from agentPush. Projects onboarded before this get the `report` line in their CLAUDE.md
+block only when `launchpad onboard` is re-run.
+
+**Hygiene.** Results live in memory, not SQLite (stale the moment you push; cheap to recompute):
+10 min per project, and concurrent scans of one project share a run. `/api/hygiene` answers from
+cache at once and starts at most one background refresh (3 projects at a time); the UI polls every
+1.5 s while scanning, and `launchpad hygiene --all` waits up to 120 s. Git runs as async child
+processes with array args, a 15 s timeout, `GIT_OPTIONAL_LOCKS=0` (so even `status` writes no
+`index.lock`) and `GIT_TERMINAL_PROMPT=0`. Folder search is breadth-first to depth 3 and never
+enters `.git`, a found folder, a symlink/junction, a nested repo/worktree, or another registered
+project. Ambiguous names (`dist`, `build`, `out`, `target`, `bin`, `obj`, `coverage`, `.cache`)
+count only beside a build manifest and with nothing tracked inside; folders under 1 MB are hidden.
+Sizing uses 8 workers and `lstat`, and stops at 200k entries or 5 s per folder. pnpm node_modules
+over-report (hard links are counted once per link). Dirty-file age is the oldest mtime among at most
+200 changed files, so one old scratch file makes a project look stale. A worktree is stale when its
+branch has work merged into the default branch or its last commit is older than `STALE_DAYS` (14).
+A branch sitting exactly on the default branch's tip (every fresh agent worktree) does not count as
+"merged" here. Removal commands are PowerShell on Windows. A full `--all` scan over 20 projects took
+about 19 s on 2026-11-08.
+
+**Timeline.** Week maths is pure `src/shared/isoWeek.ts` (shared by server and web), always built
+with local `new Date(y, m, d)` — never 24 h steps, because DST weeks are 167/169 h. Tests pin
+`TZ=Europe/Copenhagen`. Commits are placed by *author* date, but git filters `--since/--until` on
+committer date, so git is asked for the week + 7 days and the cut is made on author date afterwards
+(a rebased commit stays on the day it was written). Refs: `--all` minus stash and notes. Limits:
+4 repos at a time, 15 s per git call, 2000 commits per repo; a future week runs no git. A repo counts
+only if `.git` is in its own folder (no double counting of a parent repo), but two registered
+worktrees of one repo would each list the shared commits. "Mine" compares `git config user.email`
+per repo, case-insensitively. Cache: 60 s for the current week, 15 min for past weeks, 24 entries.
+
 ## Open questions / watch-outs
 - The installer is built, installed and verified (window, tray, server spawn, Run key,
   `--hidden` launch). **Untested by definition: an actual Windows login.** Reboot once and

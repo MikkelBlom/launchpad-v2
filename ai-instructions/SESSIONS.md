@@ -1,5 +1,28 @@
 # Sessions — Launchpad v2
 
+## 2026-11-08 — Four "what needs me" features, built in parallel
+
+**Agent:** Claude Code (Opus 5.5) — one integrator session, four subagents in their own worktrees.
+
+Mikkel approved four triage ideas so that what needs him stops getting buried in each project's
+SESSIONS.md: the Needs Mikkel inbox, `launchpad report`, a Hygiene panel and the weekly timeline
+(idea #53). A node:test harness went in first (there were no tests at all), so every agent inherited
+the temp-DB guard. The four branches were then merged one at a time on `claude/four-features-e0a7c4`;
+every conflict was keep-both (route registration, View unions, CLI command table, types, icons).
+Integrator fix on top: a brand-new worktree no longer shows as stale in Hygiene.
+
+**Verified:** unit tests per feature, typecheck, production build, and an end-to-end run of the
+merged build on a copy of the live DB on :7495 — report (dry-run, apply, idempotent re-run),
+inbox + `inbox done`, captures, timeline (this/last/--json), hygiene (one project and `--all` over
+20 projects), and the Needs Mikkel, Timeline and Hygiene views with no console errors.
+
+**Not verified:** the tray count and its "Needs Mikkel (N)" menu item (needs the desktop shell,
+which talks to the live service).
+
+**Next steps:** rebuild + restart the stable app to serve apiVersion 6 (the CLI in the working copy
+refuses an older service once merged); check the tray; re-run `launchpad onboard` in projects so
+their CLAUDE.md block mentions `launchpad report`; mark idea #53 done once the live service runs it.
+
 ## 2026-08-11 — The terminal button opens PowerShell, as admin
 
 **Agent:** Claude Code (Opus 5).

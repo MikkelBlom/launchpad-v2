@@ -130,6 +130,43 @@ Plain status tracker (readable markdown — this is not machine-parsed).
   missing now gets a 400 with the path instead of a button that silently does nothing.
   Shell *launch profiles* deliberately still run in `cmd` — see WORKING_NOTES.
 
+## Done (v0.4 — "what needs me" surfaces, 2026-11-08, apiVersion 6)
+
+- **"Needs Mikkel" inbox** — every open task (not done/archived), idea (status `open`) and note
+  (not archived) tagged `needs-mikkel` in any project, grouped by project, newest first, groups
+  ordered by their newest item. `GET /api/needs-mikkel` (groups + total) and
+  `/api/needs-mikkel/count`. UI: "Needs Mikkel" nav item with a count badge (refreshed on focus),
+  `g m`, command palette, `#needs-mikkel` URL hash; Done / Archive per row and a link to the
+  project. Tray polls the count every 60 s (tooltip + "Needs Mikkel (N)" menu item that opens the
+  view). CLI: bare `launchpad inbox [--json]` is now this list; `inbox done|archive <kind> <id>`.
+  The quick-capture verbs moved to `launchpad captures [list|file|clear]`; `inbox list|file|clear`
+  remain as aliases. The tag name lives only in `NEEDS_MIKKEL_TAG` (services/needsMikkel.ts).
+- **Session report (`launchpad report`)** — an agent's end-of-session handoff in one call, from
+  flags (`--summary`, `--title`, repeatable `--decision` / `--deferred` / `--next`) or a JSON file /
+  stdin (`{ title?, summary, decisions?, deferred?, next? }`; items are strings or `{title, body?}`).
+  Decisions → tasks tagged `needs-mikkel` + `decision`; deferred → `needs-mikkel` + `deferred`; the
+  whole report → one note (source `agent`, tag `session-report`) titled
+  "Session report — <date> — <title or summary's first line>". Runs through `applyPush`, so it is
+  transactional, backed up, idempotent by title, and `--dry-run` is the same path rolled back.
+  `POST /api/projects/:id/report[?dryRun=true]`, logic in `services/sessionReport.ts`. Listed in
+  `launchpad guide` and in the block `launchpad onboard` writes into CLAUDE.md.
+- **Hygiene panel** — read-only cleanup report per project and across projects: uncommitted files
+  and the age of the oldest edit, unpushed commits / missing upstream / no remote, stale or missing
+  git worktrees, local branches merged into the default branch, and large regenerable folders
+  (node_modules, .next, target/dist/build/out/bin/obj beside a manifest and untracked, venvs,
+  caches) with sizes (bounded; "≥ X" when sizing stops early). Every row carries a suggested
+  command to copy; Launchpad never runs it. `GET /api/projects/:id/hygiene[?refresh=true]`,
+  `GET /api/hygiene` (answers from cache, refreshes in the background); a Hygiene tab in each
+  project and a Hygiene nav view sorted by reclaimable bytes; `launchpad hygiene [--all] [--refresh] [--json]`.
+- **Weekly activity timeline** (idea #53) — what was committed in any ISO week (Mon–Sun, local
+  time) across every registered, non-archived git project.
+  `GET /api/timeline?week=2026-W45|this|last|<date>[&mine=true][&refresh=true]`. Timeline nav view
+  (`g t`, palette): week picker (arrows, ←/→, "This week"), heat strip of commits per project per
+  day, commit messages per day grouped by project, author filter, "Only mine", and a list of repos
+  that could not be read. CLI: `launchpad timeline [--week …] [--mine] [--json]`.
+- **Test harness** — `npm test` (node:test under tsx, `src/**/*.test.ts`). Every server test
+  imports `src/server/test/tempDataDir.ts` first so it runs on a temp database.
+
 ## Planned / not yet
 
 - Global hotkey for capture (currently in-app capture bar only).

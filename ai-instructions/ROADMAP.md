@@ -56,6 +56,12 @@ Legend: ✅ done · 🔨 in progress · 📋 planned
 34. ✅ Responsive layout (usable on a phone)
 35. ✅ PWA manifest (add-to-home-screen) + app favicon
 
+## "What needs me" batch (2026-11-08)
+36. ✅ Needs Mikkel inbox — cross-project `needs-mikkel` items, nav + tray badge, `launchpad inbox`
+37. ✅ Session handoff ingest — `launchpad report` (decisions/deferred → needs-mikkel tasks, session → note)
+38. ✅ Hygiene panel — uncommitted/unpushed/worktrees/merged branches/regenerable folders, read-only
+39. ✅ Weekly activity timeline (idea #53) — `launchpad timeline`, week picker view
+
 ## Deferred (noted, not built this session)
 - Optional local-AI (Ollama) assist — summaries, "what's next"
 - ✅ Packaged installer (electron-builder) — done 2026-07-30, `npm run dist`. **Bundled Node is
